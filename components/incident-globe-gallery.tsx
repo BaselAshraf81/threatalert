@@ -6,10 +6,12 @@ import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import DomeGallery from "./DomeGallery"
 import { GridScan } from "./GridScan"
+import type { GridScanHandle } from "./GridScan"
 import { useIncidents } from "@/hooks/use-incidents"
 import { useAppState } from "@/hooks/use-app-state"
 import { getCategoryInfo } from "@/lib/types"
 import type { Incident } from "@/lib/types"
+import * as flags from 'country-flag-icons/react/3x2'
 
 // ── Country flag emoji from ISO-3166-1 alpha-2 code ──────────────────────────
 function flagEmoji(countryCode: string): string {
@@ -141,24 +143,37 @@ async function fetchCountryCode(lat: number, lng: number): Promise<string> {
 
 // ── Flag badge rendered inside a tile ────────────────────────────────────────
 function FlagBadge({ countryCode }: { countryCode: string | null }) {
-  if (!countryCode) return null
+  if (!countryCode || countryCode === "XX") return null
+  
+  // Get the flag component dynamically
+  const FlagComponent = (flags as any)[countryCode]
+  
+  if (!FlagComponent) return null
+  
   return (
     <span
       style={{
         display: "inline-flex",
         alignItems: "center",
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(6px)",
-        borderRadius: "8px",
-        padding: "3px 7px",
-        fontSize: "18px",
-        lineHeight: 1,
-        border: "1px solid rgba(255,255,255,0.12)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.65) 100%)",
+        backdropFilter: "blur(10px)",
+        borderRadius: "6px",
+        padding: "4px",
+        border: "1.5px solid rgba(255,255,255,0.18)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1)",
         userSelect: "none",
+        overflow: "hidden",
       }}
     >
-      {flagEmoji(countryCode)}
+      <FlagComponent 
+        style={{ 
+          width: "28px", 
+          height: "20px",
+          display: "block",
+          borderRadius: "2px",
+        }} 
+      />
     </span>
   )
 }
@@ -167,6 +182,14 @@ function FlagBadge({ countryCode }: { countryCode: string | null }) {
 export function IncidentGlobeGallery() {
   const { showGallery, setShowGallery, setSelectedIncident } = useAppState()
   const { incidents } = useIncidents()
+  const gridScanRef = useRef<GridScanHandle>(null)
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1)
+    gridScanRef.current?.updateLook(nx, ny)
+  }, [])
 
   // Keep only the most recent 60 incidents (gallery has limited tiles)
   const activeIncidents = useMemo(
@@ -239,61 +262,72 @@ export function IncidentGlobeGallery() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.35 }}
+          onMouseMove={handleMouseMove}
           style={{
             position: "fixed",
             inset: 0,
             zIndex: 3000,
             overflow: "hidden",
+            background: "#06020e",
           }}
         >
-          {/* GridScan background */}
+          {/* GridScan background — full screen, red scan lines */}
           <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
             <GridScan
+              ref={gridScanRef}
               sensitivity={0.55}
               lineThickness={1}
-              linesColor="#1e1535"
+              linesColor="#392E4E"
               gridScale={0.1}
-              scanColor="#6b9fff"
-              scanOpacity={0.35}
+              scanColor="#ff2020"
+              scanOpacity={0.40}
               enablePost
-              bloomIntensity={0.55}
-              chromaticAberration={0.002}
-              noiseIntensity={0.012}
+              bloomIntensity={0.65}
+              chromaticAberration={0.042}
+              noiseIntensity={0.01}
+              scanDirection="backward"
             />
           </div>
 
-          {/* Dark vignette overlay so the dome pops */}
+          {/* Subtle radial vignette — darker at edges, lighter at center so dome pops */}
           <div
             style={{
               position: "absolute",
               inset: 0,
               zIndex: 1,
               background:
-                "radial-gradient(ellipse at center, transparent 30%, rgba(4,2,12,0.6) 100%)",
+                "radial-gradient(ellipse 55% 60% at center, transparent 0%, rgba(6,2,14,0.55) 100%)",
               pointerEvents: "none",
             }}
           />
 
-          {/* DomeGallery */}
-          <div style={{ position: "absolute", inset: 0, zIndex: 2 }}>
+          {/* DomeGallery — smaller & centered to leave GridScan visible around it */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+            }}
+          >
             {images.length > 0 ? (
               <DomeGallery
                 images={images}
-                fit={0.8}
+                fit={0.50}
                 minRadius={600}
                 maxVerticalRotationDeg={0}
                 segments={34}
                 dragDampening={2}
                 grayscale={false}
-                overlayBlurColor="rgba(4,2,12,0)"
+                overlayBlurColor="rgba(6,2,14,0)"
                 onItemClick={handleItemClick}
                 itemBadges={itemBadges}
               />
             ) : (
+
               <div
                 style={{
-                  position: "absolute",
-                  inset: 0,
+                  width: "100%",
+                  height: "100%",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
@@ -302,7 +336,7 @@ export function IncidentGlobeGallery() {
                   color: "rgba(255,255,255,0.5)",
                 }}
               >
-                <span style={{ fontSize: "48px" }}>🌍</span>
+
                 <p style={{ fontSize: "14px", margin: 0 }}>No incidents to display</p>
               </div>
             )}
@@ -326,7 +360,7 @@ export function IncidentGlobeGallery() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span style={{ fontSize: "20px" }}>🌐</span>
+              
               <div>
                 <p
                   style={{

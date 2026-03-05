@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { EffectComposer, RenderPass, EffectPass, BloomEffect, ChromaticAberrationEffect } from 'postprocessing';
 import * as THREE from 'three';
 import * as faceapi from 'face-api.js';
@@ -304,7 +304,12 @@ void main(){
 }
 `;
 
-export const GridScan: React.FC<GridScanProps> = ({
+export type GridScanHandle = {
+  /** Push a normalised cursor position (-1..1) from an external source */
+  updateLook: (nx: number, ny: number) => void;
+};
+
+export const GridScan = forwardRef<GridScanHandle, GridScanProps>(({
   enableWebcam = false,
   showPreview = false,
   modelsPath = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights',
@@ -333,7 +338,7 @@ export const GridScan: React.FC<GridScanProps> = ({
   snapBackDelay = 250,
   className,
   style
-}) => {
+}, ref) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -802,6 +807,15 @@ export const GridScan: React.FC<GridScanProps> = ({
     };
   }, [enableWebcam, modelsReady, depthResponse]);
 
+  // Expose a method so parent components can push cursor coordinates from
+  // elements that sit above the GridScan layer (e.g. DomeGallery overlay).
+  useImperativeHandle(ref, () => ({
+    updateLook(nx: number, ny: number) {
+      if (uiFaceActive) return;
+      lookTarget.current.set(nx, ny);
+    },
+  }), [uiFaceActive]);
+
   return (
     <div ref={containerRef} className={`gridscan${className ? ` ${className}` : ''}`} style={style}>
       {showPreview && (
@@ -820,7 +834,9 @@ export const GridScan: React.FC<GridScanProps> = ({
       )}
     </div>
   );
-};
+});
+
+GridScan.displayName = 'GridScan';
 
 function srgbColor(hex: string) {
   const c = new THREE.Color(hex);
