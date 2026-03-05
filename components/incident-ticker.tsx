@@ -17,12 +17,11 @@ function timeAgo(ts: number): string {
 
 export function IncidentTicker() {
   const { incidents } = useIncidents()
-  const { setSelectedIncident, showGallery } = useAppState()
+  const { setSelectedIncident } = useAppState()
 
   const activeIncidents = incidents.filter((i: Incident) => i.status === "active").slice(0, 8)
 
-  // Hide the ticker completely when the dome gallery overlay is open
-  if (showGallery || activeIncidents.length === 0) return null
+  if (activeIncidents.length === 0) return null
 
   return (
     <div className="absolute inset-x-0 bottom-[4.5rem] z-999 px-3 sm:bottom-24 sm:px-4 md:px-6">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, MapPin } from "lucide-react"
 import { useAppState } from "@/hooks/use-app-state"
@@ -33,24 +33,10 @@ interface EnrichedIncident extends Incident {
 
 // ── Main component ─────────────────────────────────────────────────────────
 export function IncidentGallery() {
-  const { showGallery, setShowGallery, setPendingShareTarget } = useAppState()
+  const { showGallery, setShowGallery, setSelectedIncident, setPendingShareTarget } = useAppState()
   const { incidents } = useIncidents()
 
   const [enriched, setEnriched] = useState<EnrichedIncident[]>([])
-
-  // Increment each time gallery opens to force a clean DomeGallery remount.
-  // This prevents stale useGesture listeners from accumulating (fixes issues 3 & 7).
-  const [galleryKey, setGalleryKey] = useState(0)
-  const prevShowGallery = useRef(false)
-
-  useEffect(() => {
-    if (showGallery && !prevShowGallery.current) {
-      // Gallery just opened: bump key + scrub any stale scroll-lock from prior session
-      setGalleryKey(k => k + 1)
-      document.body.classList.remove("dg-scroll-lock")
-    }
-    prevShowGallery.current = showGallery
-  }, [showGallery])
 
   // Fetch country flags for all visible incidents
   useEffect(() => {
@@ -69,113 +55,34 @@ export function IncidentGallery() {
     return () => { cancelled = true }
   }, [showGallery, incidents])
 
-  const closeGallery = useCallback(() => {
-    // Always clean up scroll-lock before closing so topbar stays interactive
-    document.body.classList.remove("dg-scroll-lock")
-    setShowGallery(false)
-  }, [setShowGallery])
-
   const handleSelect = useCallback((inc: Incident) => {
-    closeGallery()
+    setShowGallery(false)
+    // Use pendingShareTarget pattern so MapView flies to the incident and sheet opens
     setPendingShareTarget({ id: inc.id, lat: inc.lat, lng: inc.lng })
-  }, [closeGallery, setPendingShareTarget])
+  }, [setShowGallery, setPendingShareTarget])
 
-  // Called by DomeGallery when a tile is clicked (issue 6)
-  const handleItemClick = useCallback((incidentIndex: number) => {
-    const inc = enriched[incidentIndex]
-    if (inc) handleSelect(inc)
-  }, [enriched, handleSelect])
-
-  // Build DomeGallery image list from ALL incidents (photo + no-photo)
-  // so text-only incidents also appear in the dome sphere (issue 4).
-  const domeImages = enriched.map((inc, idx) => ({
-    src: inc.photoUrls?.[0] ?? "",
-    alt: `${getCategoryInfo(inc.category).label} — ${inc.description}`,
-    incidentIndex: idx,
-  }))
-
-  // renderItem: wraps EVERY dome tile in a PixelCard for the sparkle effect
-  // (issue 5). Text-only incidents show incident data (issue 4). Clicking
-  // still propagates to the parent item__image div's onClick → handleItemClick.
-  const renderItem = useCallback(
-    ({ src, alt, incidentIndex }: { src: string; alt: string; incidentIndex: number }) => {
-      const inc = enriched[incidentIndex]
-      if (!inc) {
-        return src
-          ? <img src={src} draggable={false} alt={alt} className="absolute inset-0 h-full w-full object-cover" />
-          : <div className="absolute inset-0 bg-white/5" />
-      }
-
-      const cat = getCategoryInfo(inc.category)
-      const variant = CATEGORY_VARIANTS[inc.category] ?? "default"
-      const colors = CATEGORY_COLORS[inc.category]
-      const hasPhoto = !!(inc.photoUrls && inc.photoUrls.length > 0)
-
-      return (
-        <PixelCard
-          variant={variant}
-          colors={colors}
-          gap={8}
-          speed={25}
-          noFocus
-          className="!absolute !inset-0 !h-full !w-full !rounded-none !border-0"
-        >
-          {hasPhoto ? (
-            // Photo tile: image fills the card; pixel sparkle plays on top
-            <img
-              src={src}
-              draggable={false}
-              alt={alt}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          ) : (
-            // Text-only tile: render incident metadata (issue 4)
-            <div className="relative z-10 flex h-full w-full flex-col items-start justify-end p-2 text-left">
-              {/* Country flag badge */}
-              <div className="absolute right-1.5 top-1.5 text-sm leading-none">
-                {inc.flag}
-              </div>
-
-              {/* Category badge */}
-              <span
-                className="mb-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
-                style={{
-                  background: cat.color + "25",
-                  color: cat.color,
-                  border: `1px solid ${cat.color}50`,
-                }}
-              >
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: cat.color }} />
-                {cat.label}
-              </span>
-
-              <p className="line-clamp-3 text-[10px] font-medium leading-snug text-white/90">
-                {inc.description || cat.label}
-              </p>
-
-              <div className="mt-1 flex items-center gap-0.5 text-[9px] text-white/40">
-                <MapPin className="h-2 w-2 shrink-0" />
-                <span className="truncate">{inc.lat.toFixed(2)}, {inc.lng.toFixed(2)}</span>
-              </div>
-            </div>
-          )}
-        </PixelCard>
-      )
-    },
-    [enriched]
+  // Split into photo vs no-photo incidents
+  const photoIncidents = enriched.filter(
+    (i) => i.photoUrls && i.photoUrls.length > 0
+  )
+  const textIncidents = enriched.filter(
+    (i) => !i.photoUrls || i.photoUrls.length === 0
   )
 
+  // Build DomeGallery image objects from photo incidents
+  const domeImages = photoIncidents.map((inc) => ({
+    src: inc.photoUrls![0],
+    alt: `${getCategoryInfo(inc.category).label} — ${inc.description}`,
+  }))
+
   return (
-    // mode="wait" ensures the exiting DomeGallery fully unmounts before a new
-    // instance can mount — prevents doubled useGesture listeners (issues 3 & 7).
-    <AnimatePresence mode="wait">
+    <AnimatePresence>
       {showGallery && (
         <motion.div
-          key="gallery-overlay"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          transition={{ duration: 0.3 }}
           className="fixed inset-0 z-[200] flex flex-col bg-black/95 backdrop-blur-xl"
         >
           {/* ── Header ── */}
@@ -189,7 +96,7 @@ export function IncidentGallery() {
               </p>
             </div>
             <button
-              onClick={closeGallery}
+              onClick={() => setShowGallery(false)}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
               aria-label="Close gallery"
             >
@@ -197,21 +104,62 @@ export function IncidentGallery() {
             </button>
           </div>
 
-          {/* ── Dome (all incidents — photo & text alike) ── */}
-          {enriched.length > 0 ? (
+          {/* ── Dome (photo incidents) ── */}
+          {photoIncidents.length > 0 ? (
             <div className="relative min-h-0 flex-1">
               <DomeGallery
-                key={galleryKey}
                 images={domeImages}
                 overlayBlurColor="#000000"
                 grayscale={false}
                 fit={0.48}
-                segments={enriched.length < 10 ? 20 : 35}
-                onItemClick={handleItemClick}
-                renderItem={renderItem}
+                segments={photoIncidents.length < 10 ? 20 : 35}
+              />
+
+              {/* Flag + label overlay chips — absolutely positioned over the dome */}
+              {photoIncidents.map((inc, i) => {
+                const cat = getCategoryInfo(inc.category)
+                return (
+                  <button
+                    key={inc.id}
+                    onClick={() => handleSelect(inc)}
+                    className="sr-only"
+                    aria-label={`${cat.label} in ${inc.flag} — ${inc.description}`}
+                  />
+                )
+              })}
+
+              {/* Clickable dome — intercept tile clicks via a transparent overlay grid */}
+              <ClickablePhotoLayer
+                incidents={photoIncidents}
+                onSelect={handleSelect}
               />
             </div>
           ) : (
+            <div className="flex min-h-0 flex-1 items-center justify-center">
+              <p className="text-sm text-white/30">No photo reports yet</p>
+            </div>
+          )}
+
+          {/* ── Text-only incidents (PixelCards) ── */}
+          {textIncidents.length > 0 && (
+            <div className="shrink-0 border-t border-white/10 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+              <p className="mb-3 text-xs font-medium uppercase tracking-widest text-white/30">
+                Reports without photos
+              </p>
+              <div className="flex gap-3 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
+                {textIncidents.map((inc) => (
+                  <IncidentPixelCard
+                    key={inc.id}
+                    incident={inc}
+                    onSelect={handleSelect}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {enriched.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
               <span className="text-5xl">🌍</span>
               <p className="text-sm text-white/40">No active incidents worldwide right now.</p>
@@ -220,5 +168,108 @@ export function IncidentGallery() {
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+// ── Transparent click layer over the DomeGallery ──────────────────────────
+// DomeGallery calls its own internal click handler per tile. We can't easily
+// intercept that, so we show a floating info panel when the gallery signals
+// a selection. Instead, we render a separate row of clickable flag badges
+// below the dome so users can tap a specific incident.
+function ClickablePhotoLayer({
+  incidents,
+  onSelect,
+}: {
+  incidents: EnrichedIncident[]
+  onSelect: (inc: Incident) => void
+}) {
+  return (
+    <div className="absolute bottom-4 left-0 right-0 z-10 flex justify-center">
+      <div className="flex max-w-full gap-2 overflow-x-auto px-4 pb-1">
+        {incidents.map((inc) => {
+          const cat = getCategoryInfo(inc.category)
+          return (
+            <button
+              key={inc.id}
+              onClick={() => onSelect(inc)}
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-md transition-colors hover:bg-white/20 active:scale-95"
+              style={{ borderColor: cat.color + "60" }}
+            >
+              <span>{inc.flag}</span>
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: cat.color }}
+              />
+              <span className="max-w-[110px] truncate opacity-80">
+                {inc.description || cat.label}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Individual PixelCard for a text-only incident ─────────────────────────
+function IncidentPixelCard({
+  incident,
+  onSelect,
+}: {
+  incident: EnrichedIncident
+  onSelect: (inc: Incident) => void
+}) {
+  const cat = getCategoryInfo(incident.category)
+  const variant = CATEGORY_VARIANTS[incident.category] ?? "default"
+  const colors = CATEGORY_COLORS[incident.category]
+
+  return (
+    <button
+      onClick={() => onSelect(incident)}
+      className="shrink-0 transition-transform active:scale-95"
+      aria-label={`${cat.label} — ${incident.description}`}
+    >
+      <PixelCard
+        variant={variant}
+        colors={colors}
+        gap={6}
+        speed={30}
+        className="!h-44 !w-36 !rounded-2xl"
+        noFocus
+      >
+        {/* Flag badge */}
+        <div className="absolute right-2 top-2 z-10 text-base leading-none">
+          {incident.flag}
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex h-full w-full flex-col items-start justify-end p-3 text-left">
+          {/* Status dot */}
+          <span
+            className="mb-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{
+              background: cat.color + "25",
+              color: cat.color,
+              border: `1px solid ${cat.color}50`,
+            }}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ background: cat.color }}
+            />
+            {incident.status === "active" ? "Verified" : "Pending"}
+          </span>
+
+          <p className="line-clamp-2 text-[11px] font-medium leading-snug text-white/90">
+            {incident.description || cat.label}
+          </p>
+
+          <div className="mt-1.5 flex items-center gap-1 text-[10px] text-white/40">
+            <MapPin className="h-2.5 w-2.5" />
+            <span className="truncate">{incident.lat.toFixed(2)}, {incident.lng.toFixed(2)}</span>
+          </div>
+        </div>
+      </PixelCard>
+    </button>
   )
 }

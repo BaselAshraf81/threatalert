@@ -10,7 +10,7 @@ import { GitHubStarsButton } from "@/components/github-stars-button"
 import { InstallPWAButton } from "@/components/install-pwa-button"
 
 export function TopBar() {
-  const { setShowNotificationSheet, showGallery, setShowGallery } = useAppState()
+  const { setShowNotificationSheet, setShowGallery } = useAppState()
   const { theme, setTheme } = useTheme()
 
   return (
@@ -49,9 +49,9 @@ export function TopBar() {
         <Button
           variant="outline"
           size="icon"
-          onClick={() => setShowGallery(!showGallery)}
-          className={`pointer-events-auto h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10 ${showGallery ? "bg-primary/20 border-primary/50 text-primary" : ""}`}
-          aria-label={showGallery ? "Close incident gallery" : "World incident gallery"}
+          onClick={() => setShowGallery(true)}
+          className="pointer-events-auto h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10"
+          aria-label="World incident gallery"
         >
           <Globe className="h-4 w-4" />
         </Button>
