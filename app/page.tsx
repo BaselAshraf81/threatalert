@@ -10,6 +10,7 @@ import { NotificationSheet } from "@/components/notification-sheet"
 import { AlertToast } from "@/components/alert-toast"
 import { IncidentTicker } from "@/components/incident-ticker"
 import { BetaBanner } from "@/components/beta-banner"
+import { IncidentGallery } from "@/components/incident-gallery"
 import ClickSpark from "@/components/ClickSpark"
 import { useTheme } from "next-themes"
 
@@ -44,6 +45,7 @@ function AppContent() {
         <NotificationSheet />
         <AlertToast />
         <BetaBanner />
+        <IncidentGallery />
       </main>
     </ClickSpark>
   )

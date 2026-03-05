@@ -12,6 +12,8 @@ interface AppState {
   setShowReportSheet: (show: boolean) => void
   showNotificationSheet: boolean
   setShowNotificationSheet: (show: boolean) => void
+  showGallery: boolean
+  setShowGallery: (show: boolean) => void
   reportLocation: { lat: number; lng: number } | null
   setReportLocation: (loc: { lat: number; lng: number } | null) => void
   /** When true the map shows the pin-placement crosshair UI */
@@ -40,6 +42,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null)
   const [showReportSheet, setShowReportSheet] = useState(false)
   const [showNotificationSheet, setShowNotificationSheet] = useState(false)
+  const [showGallery, setShowGallery] = useState(false)
   const [reportLocation, setReportLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [pinPlacementMode, setPinPlacementMode] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
@@ -127,6 +130,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setShowReportSheet,
         showNotificationSheet,
         setShowNotificationSheet,
+        showGallery,
+        setShowGallery,
         reportLocation,
         setReportLocation,
         pinPlacementMode,
