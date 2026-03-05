@@ -7,6 +7,7 @@ import { X, MapPin, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { GridScan } from "./GridScan"
 import type { GridScanHandle } from "./GridScan"
+import StarBorder from "./StarBorder"
 import { useIncidents } from "@/hooks/use-incidents"
 import { useAppState } from "@/hooks/use-app-state"
 import { getCategoryInfo, CATEGORIES } from "@/lib/types"
@@ -27,6 +28,10 @@ const CATEGORY_EMOJI: Record<string, string> = {
 }
 
 const TWO_PI = Math.PI * 2
+
+// Module-level cache — persists across gallery open/close so we never re-fetch or recalculate
+let _cachedLandFeatures: any = null
+let _cachedDots: { lng: number; lat: number }[] = []
 
 function timeAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000)
@@ -403,15 +408,26 @@ export function IncidentGlobeGallery() {
 
     ;(async () => {
       try {
+        if (_cachedLandFeatures) {
+          // Already loaded — reuse instantly, no network round-trip
+          landFeaturesRef.current = _cachedLandFeatures
+          allDotsRef.current = _cachedDots
+          setIsLoading(false)
+          return
+        }
         const res = await fetch(
           "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json"
         )
         if (!res.ok) throw new Error()
-        landFeaturesRef.current = await res.json()
+        const data = await res.json()
         const dots: { lng: number; lat: number }[] = []
-        landFeaturesRef.current.features.forEach((f: any) => {
+        data.features.forEach((f: any) => {
           genDots(f, 14).forEach(([lng, lat]) => dots.push({ lng, lat }))
         })
+        // Store in module cache so reopen is instant
+        _cachedLandFeatures = data
+        _cachedDots = dots
+        landFeaturesRef.current = data
         allDotsRef.current = dots
         setIsLoading(false)
       } catch {
@@ -428,8 +444,7 @@ export function IncidentGlobeGallery() {
       canvas.removeEventListener("mouseleave", onMouseLeave)
       canvas.removeEventListener("wheel", onWheel)
       ro.disconnect()
-      landFeaturesRef.current = null
-      allDotsRef.current = []
+      // Note: land data stays in module cache — reopen will be instant
     }
   }, [showGallery, setSelectedIncident, setShowGallery])
 
@@ -516,47 +531,56 @@ export function IncidentGlobeGallery() {
                   maxWidth: 240,
                 }}
               >
-                <div style={{
-                  background: "rgba(3,5,18,0.95)",
-                  border: `1px solid ${CATEGORY_COLORS[hoveredIncident.incident.category]}44`,
-                  borderLeft: `3px solid ${CATEGORY_COLORS[hoveredIncident.incident.category]}`,
-                  borderRadius: 10, padding: "11px 14px",
-                  backdropFilter: "blur(20px)",
-                  boxShadow: `0 12px 40px rgba(0,0,0,0.7), 0 0 30px ${CATEGORY_COLORS[hoveredIncident.incident.category]}18`,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
-                    <span style={{ fontSize: 15 }}>{CATEGORY_EMOJI[hoveredIncident.incident.category]}</span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
-                      color: CATEGORY_COLORS[hoveredIncident.incident.category],
-                      textTransform: "uppercase", fontFamily: "monospace",
-                    }}>
-                      {getCategoryInfo(hoveredIncident.incident.category).label}
-                    </span>
-                  </div>
-                  <p style={{
-                    margin: 0, fontSize: 12, color: "rgba(210,225,255,0.9)",
-                    lineHeight: 1.55, fontFamily: "system-ui, sans-serif",
+                <StarBorder
+                  as="div"
+                  color={CATEGORY_COLORS[hoveredIncident.incident.category]}
+                  speed="4s"
+                  thickness={1.5}
+                  style={{
+                    borderRadius: 10,
+                    display: "block",
+                    background: "rgba(3,5,18,0.97)",
+                    backdropFilter: "blur(20px)",
+                    boxShadow: `0 12px 40px rgba(0,0,0,0.7), 0 0 30px ${CATEGORY_COLORS[hoveredIncident.incident.category]}30`,
+                  }}
+                >
+                  <div style={{
+                    borderRadius: 9, padding: "11px 14px",
                   }}>
-                    {hoveredIncident.incident.description?.slice(0, 90) || "No description"}
-                    {(hoveredIncident.incident.description?.length ?? 0) > 90 && "…"}
-                  </p>
-                  <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, color: "rgba(100,130,200,0.65)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: 3 }}>
-                      <MapPin size={8} />
-                      {hoveredIncident.incident.lat.toFixed(2)}°, {hoveredIncident.incident.lng.toFixed(2)}°
-                    </span>
-                    <span style={{ fontSize: 10, color: "rgba(100,130,200,0.5)", fontFamily: "monospace", marginLeft: "auto", display: "flex", alignItems: "center", gap: 3 }}>
-                      <Clock size={8} />
-                      {timeAgo(hoveredIncident.incident.createdAt)}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                      <span style={{ fontSize: 15 }}>{CATEGORY_EMOJI[hoveredIncident.incident.category]}</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
+                        color: CATEGORY_COLORS[hoveredIncident.incident.category],
+                        textTransform: "uppercase", fontFamily: "monospace",
+                      }}>
+                        {getCategoryInfo(hoveredIncident.incident.category).label}
+                      </span>
+                    </div>
+                    <p style={{
+                      margin: 0, fontSize: 12, color: "rgba(210,225,255,0.9)",
+                      lineHeight: 1.55, fontFamily: "system-ui, sans-serif",
+                    }}>
+                      {hoveredIncident.incident.description?.slice(0, 90) || "No description"}
+                      {(hoveredIncident.incident.description?.length ?? 0) > 90 && "…"}
+                    </p>
+                    <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center" }}>
+                      <span style={{ fontSize: 10, color: "rgba(100,130,200,0.65)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: 3 }}>
+                        <MapPin size={8} />
+                        {hoveredIncident.incident.lat.toFixed(2)}°, {hoveredIncident.incident.lng.toFixed(2)}°
+                      </span>
+                      <span style={{ fontSize: 10, color: "rgba(100,130,200,0.5)", fontFamily: "monospace", marginLeft: "auto", display: "flex", alignItems: "center", gap: 3 }}>
+                        <Clock size={8} />
+                        {timeAgo(hoveredIncident.incident.createdAt)}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 8, paddingTop: 7, borderTop: "1px solid rgba(80,100,200,0.15)" }}>
+                      <span style={{ fontSize: 10, color: "rgba(80,120,255,0.65)", fontFamily: "monospace", letterSpacing: "0.06em" }}>
+                        CLICK TO VIEW DETAILS →
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ marginTop: 8, paddingTop: 7, borderTop: "1px solid rgba(80,100,200,0.15)" }}>
-                    <span style={{ fontSize: 10, color: "rgba(80,120,255,0.65)", fontFamily: "monospace", letterSpacing: "0.06em" }}>
-                      CLICK TO VIEW DETAILS →
-                    </span>
-                  </div>
-                </div>
+                </StarBorder>
               </motion.div>
             )}
           </AnimatePresence>
@@ -583,25 +607,36 @@ export function IncidentGlobeGallery() {
                       initial={{ opacity: 0, x: 12 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.3, delay: ci * 0.06 }}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 9,
-                        background: "rgba(3,5,18,0.8)",
-                        border: `1px solid ${cat.color}28`,
-                        borderLeft: `2px solid ${cat.color}`,
-                        borderRadius: 8, padding: "6px 12px",
-                        backdropFilter: "blur(12px)", minWidth: 140,
-                      }}
                     >
-                      <span style={{ fontSize: 12 }}>{CATEGORY_EMOJI[cat.id]}</span>
-                      <span style={{ flex: 1, fontSize: 10, color: "rgba(180,195,255,0.65)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
-                        {cat.label.toUpperCase().slice(0, 13)}
-                      </span>
-                      <span style={{
-                        fontSize: 13, fontWeight: 700, color: cat.color,
-                        fontFamily: "monospace", minWidth: 20, textAlign: "right",
-                      }}>
-                        {count}
-                      </span>
+                      <StarBorder
+                        as="div"
+                        color={cat.color}
+                        speed="6s"
+                        thickness={1.5}
+                        style={{
+                          borderRadius: 8,
+                          display: "block",
+                          minWidth: 140,
+                          background: "rgba(3,5,18,0.88)",
+                          backdropFilter: "blur(12px)",
+                        }}
+                      >
+                        <div style={{
+                          display: "flex", alignItems: "center", gap: 9,
+                          borderRadius: 7, padding: "6px 12px",
+                        }}>
+                          <span style={{ fontSize: 12 }}>{CATEGORY_EMOJI[cat.id]}</span>
+                          <span style={{ flex: 1, fontSize: 10, color: "rgba(180,195,255,0.65)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                            {cat.label.toUpperCase().slice(0, 13)}
+                          </span>
+                          <span style={{
+                            fontSize: 13, fontWeight: 700, color: cat.color,
+                            fontFamily: "monospace", minWidth: 20, textAlign: "right",
+                          }}>
+                            {count}
+                          </span>
+                        </div>
+                      </StarBorder>
                     </motion.div>
                   )
                 })}
