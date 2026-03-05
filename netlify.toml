@@ -4,13 +4,13 @@
 
 [[redirects]]
   from = "/api/createIncident"
-  to = "https://us-central1-threatalert-app-2026.cloudfunctions.net/createIncident"
+  to = "https://us-east1-threatalert-app-2026.cloudfunctions.net/createIncident"
   status = 200
   force = true
 
 [[redirects]]
   from = "/api/vote"
-  to = "https://us-central1-threatalert-app-2026.cloudfunctions.net/vote"
+  to = "https://us-east1-threatalert-app-2026.cloudfunctions.net/vote"
   status = 200
   force = true
 

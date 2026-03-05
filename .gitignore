@@ -48,6 +48,9 @@ functions/lib/
 # Generated files (re-created by scripts/generate-messaging-sw.js at build time)
 public/firebase-messaging-sw.js
 
+# Netlify
+.netlify/
+
 # OS
 .DS_Store
 *.pem
