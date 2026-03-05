@@ -5,6 +5,9 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "functions": {
     "source": "functions",
     "runtime": "nodejs20"
@@ -20,6 +23,10 @@
       {
         "source": "/api/createIncident",
         "function": "createIncident"
+      },
+      {
+        "source": "/api/patchIncidentPhotos",
+        "function": "patchIncidentPhotos"
       },
       {
         "source": "/api/vote",

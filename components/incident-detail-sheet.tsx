@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAppState } from "@/hooks/use-app-state"
 import { useIncidents } from "@/hooks/use-incidents"
 import { getCategoryInfo } from "@/lib/types"
@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
+import { PhotoCarousel } from "@/components/ui/photo-carousel"
 import type { IncidentCategory } from "@/lib/types"
 
 const CATEGORY_ICONS: Record<IncidentCategory, React.ReactNode> = {
@@ -65,9 +66,32 @@ function CountBadge({ value, active }: { value: number; active: boolean }) {
 }
 
 export function IncidentDetailSheet() {
-  const { selectedIncident, setSelectedIncident, userLocation, showToast } = useAppState()
-  const { confirm, resolve, flag } = useIncidents()
+  const {
+    selectedIncident: selectedIncidentRef,
+    setSelectedIncident,
+    userLocation,
+    showToast,
+    pendingShareTarget,
+    setPendingShareTarget,
+  } = useAppState()
+  const { incidents, confirm, resolve, flag } = useIncidents()
+
+  // Always use the live incident from the store — photoUrls are patched in
+  // after upload so the app-state snapshot would be stale without this.
+  const selectedIncident = selectedIncidentRef
+    ? (incidents.find((i) => i.id === selectedIncidentRef.id) ?? selectedIncidentRef)
+    : null
   const [isVoting, setIsVoting] = useState(false)
+
+  // ── Auto-open when arriving via a shared link ─────────────────────────────
+  useEffect(() => {
+    if (!pendingShareTarget) return
+    const match = incidents.find((i) => i.id === pendingShareTarget.id)
+    if (match) {
+      setSelectedIncident(match)
+      setPendingShareTarget(null)
+    }
+  }, [pendingShareTarget, incidents, setSelectedIncident, setPendingShareTarget])
 
   const doVote = async (action: () => Promise<void>, message: string) => {
     if (!selectedIncident || hasVoted(selectedIncident.id) || isVoting) return
@@ -86,11 +110,21 @@ export function IncidentDetailSheet() {
   const handleShare = async () => {
     if (!selectedIncident) return
     const cat = getCategoryInfo(selectedIncident.category)
+
+    // Build a deep link that flies to the incident and opens its sheet
+    const base = typeof window !== "undefined" ? window.location.origin + window.location.pathname : ""
+    const params = new URLSearchParams({
+      i:   selectedIncident.id,
+      lat: selectedIncident.lat.toFixed(6),
+      lng: selectedIncident.lng.toFixed(6),
+    })
+    const deepLink = `${base}?${params.toString()}`
     const text = `${cat.label} reported on ThreatAlert: ${selectedIncident.description}`
+
     if (navigator.share) {
-      await navigator.share({ title: "ThreatAlert incident", text, url: window.location.href }).catch(() => {})
+      await navigator.share({ title: "ThreatAlert incident", text, url: deepLink }).catch(() => {})
     } else {
-      await navigator.clipboard.writeText(text).catch(() => {})
+      await navigator.clipboard.writeText(deepLink).catch(() => {})
       showToast("Copied to clipboard")
     }
   }
@@ -178,6 +212,16 @@ export function IncidentDetailSheet() {
                   <p className="text-[15px] leading-relaxed text-foreground/90">
                     {selectedIncident.description}
                   </p>
+
+                  {/* ── Photos ── */}
+                  {selectedIncident.photoUrls && selectedIncident.photoUrls.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Photos · {selectedIncident.photoUrls.length}
+                      </p>
+                      <PhotoCarousel urls={selectedIncident.photoUrls} />
+                    </div>
+                  )}
 
                   {/* ── Verification progress (pending only) ── */}
                   {isPending && (

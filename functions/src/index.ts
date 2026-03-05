@@ -91,7 +91,7 @@ export const createIncident = onRequest(
     }
 
     // ── Validate body ──
-    const { category, description, lat, lng } = req.body ?? {}
+    const { category, description, lat, lng, photoUrls } = req.body ?? {}
 
     if (!VALID_CATEGORIES.includes(category)) {
       res.status(400).json({ error: "Invalid category." }); return
@@ -107,6 +107,20 @@ export const createIncident = onRequest(
     const rawDesc: string = typeof description === "string" ? description : ""
     const safeDesc = rawDesc.replace(/[<>]/g, "").trim().slice(0, 280)
 
+    // Sanitise photoUrls: must be an array of valid https:// Firebase Storage URLs, max 3
+    const safePhotoUrls: string[] = []
+    if (Array.isArray(photoUrls)) {
+      for (const u of photoUrls.slice(0, 3)) {
+        if (
+          typeof u === "string" &&
+          u.startsWith("https://") &&
+          (u.includes("firebasestorage.googleapis.com") || u.includes("storage.googleapis.com"))
+        ) {
+          safePhotoUrls.push(u)
+        }
+      }
+    }
+
     // ── Write via admin SDK (bypasses Firestore rules) ──
     const CATEGORY_TTL_HOURS: Record<string, number> = {
       crime: 4, disaster: 12, fire: 6, infrastructure: 8, unrest: 6, custom: 4,
@@ -114,7 +128,7 @@ export const createIncident = onRequest(
     const now = Date.now()
     const ttlMs = (CATEGORY_TTL_HOURS[category] ?? 4) * 3_600_000
 
-    const data = {
+    const data: Record<string, unknown> = {
       category,
       description: safeDesc || "Incident reported",
       lat,
@@ -128,6 +142,10 @@ export const createIncident = onRequest(
       creatorIpHash: ipHash,
     }
 
+    if (safePhotoUrls.length > 0) {
+      data.photoUrls = safePhotoUrls
+    }
+
     const docRef = await db.collection("incidents").add(data)
 
     // Record the creator's implicit confirm vote so they can't vote again
@@ -136,6 +154,68 @@ export const createIncident = onRequest(
     })
 
     res.status(201).json({ id: docRef.id })
+  }
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HTTP endpoint: POST /api/patchIncidentPhotos
+// Called after photos are uploaded to Storage; patches the photoUrls field.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const patchIncidentPhotos = onRequest(
+  { region: "us-east1", timeoutSeconds: 30 },
+  async (req, res) => {
+    setCors(res)
+    if (req.method === "OPTIONS") { res.status(204).send(""); return }
+    if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return }
+
+    const ip = getClientIp(req)
+    const ipHash = hashIp(ip)
+
+    // Use same rate limit bucket as create (5/hr is shared)
+    const allowed = await checkRateLimit(ipHash, "create", 5)
+    if (!allowed) {
+      res.status(429).json({ error: "Rate limit exceeded." }); return
+    }
+
+    const { incidentId, photoUrls } = req.body ?? {}
+
+    if (typeof incidentId !== "string" || !incidentId) {
+      res.status(400).json({ error: "Missing incidentId." }); return
+    }
+
+    // Validate photoUrls
+    const safePhotoUrls: string[] = []
+    if (Array.isArray(photoUrls)) {
+      for (const u of photoUrls.slice(0, 3)) {
+        if (
+          typeof u === "string" &&
+          u.startsWith("https://") &&
+          (u.includes("firebasestorage.googleapis.com") || u.includes("storage.googleapis.com"))
+        ) {
+          safePhotoUrls.push(u)
+        }
+      }
+    }
+
+    if (!safePhotoUrls.length) {
+      res.status(400).json({ error: "No valid photoUrls provided." }); return
+    }
+
+    // Verify incident exists and was created by this IP
+    const incidentRef = db.collection("incidents").doc(incidentId)
+    const snap = await incidentRef.get()
+    if (!snap.exists) {
+      res.status(404).json({ error: "Incident not found." }); return
+    }
+
+    const incident = snap.data()!
+    if (incident.creatorIpHash !== ipHash) {
+      res.status(403).json({ error: "Not authorised to edit this incident." }); return
+    }
+
+    await incidentRef.update({ photoUrls: safePhotoUrls })
+    res.status(200).json({ ok: true })
   }
 )
 

@@ -29,6 +29,9 @@ interface AppState {
   setNotificationThreshold: (t: number) => void
   votedIncidents: Set<string>
   markVoted: (id: string) => void
+  /** Set when the app is opened via a shared incident link. MapView flies here; detail sheet opens once the incident loads. */
+  pendingShareTarget: { id: string; lat: number; lng: number } | null
+  setPendingShareTarget: (t: { id: string; lat: number; lng: number } | null) => void
 }
 
 const AppContext = createContext<AppState | null>(null)
@@ -43,10 +46,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [notificationRadius, setNotificationRadius] = useState(5)
   const [notificationThreshold, setNotificationThreshold] = useState(5)
   const [votedIncidents, setVotedIncidents] = useState<Set<string>>(new Set())
+  const [pendingShareTarget, setPendingShareTarget] = useState<{ id: string; lat: number; lng: number } | null>(null)
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("pending")
   const [watchId, setWatchId] = useState<number | null>(null)
+
+  // ── Read share params from URL on first load ──────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const id  = params.get("i")
+    const lat = parseFloat(params.get("lat") ?? "")
+    const lng = parseFloat(params.get("lng") ?? "")
+    if (id && !isNaN(lat) && !isNaN(lng)) {
+      setPendingShareTarget({ id, lat, lng })
+      // Clean the URL without triggering a navigation
+      const clean = window.location.pathname
+      window.history.replaceState({}, "", clean)
+    }
+  }, [])
 
   const requestLocation = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -123,6 +142,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setNotificationThreshold,
         votedIncidents,
         markVoted,
+        pendingShareTarget,
+        setPendingShareTarget,
       }}
     >
       {children}

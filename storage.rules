@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Incident photos ────────────────────────────────────────────────────
+    // Allow anyone to read incident photos (they're shown publicly on the map).
+    // Allow anyone to upload to incidents/<id>/<index>.ext as long as:
+    //   • File size ≤ 10 MB
+    //   • Content type is an image
+    //
+    // The Cloud Function patchIncidentPhotos validates that the URLs are real
+    // Firebase Storage URLs and belong to an incident created by the same IP,
+    // providing the write-side guard.
+    match /incidents/{incidentId}/{filename} {
+      allow read: if true;
+
+      allow write: if request.resource.size <= 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Deny everything else by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

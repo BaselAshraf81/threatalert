@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useAppState } from "@/hooks/use-app-state"
 import { useIncidents } from "@/hooks/use-incidents"
 import { CATEGORIES } from "@/lib/types"
@@ -14,6 +14,9 @@ import {
   CircleDot,
   Camera,
   Send,
+  X,
+  ImagePlus,
+  Loader2,
 } from "lucide-react"
 import StarBorder from "@/components/StarBorder"
 import {
@@ -36,6 +39,9 @@ const CATEGORY_ICONS: Record<IncidentCategory, React.ReactNode> = {
   custom: <CircleDot className="h-5 w-5" />,
 }
 
+const MAX_PHOTOS = 3
+const MAX_FILE_MB = 10
+
 export function ReportSheet() {
   const {
     showReportSheet,
@@ -48,40 +54,92 @@ export function ReportSheet() {
     setPinPlacementMode,
   } = useAppState()
   const { report } = useIncidents()
+
   const [selectedCategory, setSelectedCategory] = useState<IncidentCategory | null>(null)
   const [description, setDescription] = useState("")
+  const [photos, setPhotos] = useState<File[]>([])
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<"idle" | "uploading" | "done">("idle")
   const [showSuccess, setShowSuccess] = useState(false)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const location = reportLocation || userLocation
   const locationReady = !!location
 
-  const handleSubmit = () => {
+  // ── Photo handling ─────────────────────────────────────────────────────────
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+
+    const remaining = MAX_PHOTOS - photos.length
+    const toAdd = files.slice(0, remaining)
+
+    // Validate size
+    const oversized = toAdd.filter((f) => f.size > MAX_FILE_MB * 1024 * 1024)
+    if (oversized.length) {
+      showToast(`Photos must be under ${MAX_FILE_MB} MB each`)
+    }
+    const valid = toAdd.filter((f) => f.size <= MAX_FILE_MB * 1024 * 1024)
+    if (!valid.length) return
+
+    // Generate local preview URLs
+    const previews = valid.map((f) => URL.createObjectURL(f))
+    setPhotos((prev) => [...prev, ...valid])
+    setPhotoPreviews((prev) => [...prev, ...previews])
+
+    // Reset input so the same file can be re-selected if removed
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }
+
+  const removePhoto = (index: number) => {
+    URL.revokeObjectURL(photoPreviews[index])
+    setPhotos((prev) => prev.filter((_, i) => i !== index))
+    setPhotoPreviews((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
+  const handleSubmit = async () => {
     if (!selectedCategory || !location) return
 
     setIsSubmitting(true)
-    setTimeout(() => {
-      report(selectedCategory, description || "Incident reported", location.lat, location.lng)
-      setIsSubmitting(false)
+    try {
+      if (photos.length > 0) setUploadProgress("uploading")
+      await report(selectedCategory, description || "Incident reported", location.lat, location.lng, photos)
+      setUploadProgress("done")
       setShowSuccess(true)
+
       setTimeout(() => {
         setShowSuccess(false)
         setShowReportSheet(false)
-        setSelectedCategory(null)
-        setDescription("")
-        setReportLocation(null)
-        setPinPlacementMode(false)
+        reset()
         showToast("Incident submitted — it will appear once verified")
       }, 1200)
-    }, 600)
+    } catch (err: any) {
+      showToast(err?.message ?? "Submission failed — please try again.")
+      setIsSubmitting(false)
+      setUploadProgress("idle")
+    }
+  }
+
+  const reset = () => {
+    setSelectedCategory(null)
+    setDescription("")
+    photoPreviews.forEach((p) => URL.revokeObjectURL(p))
+    setPhotos([])
+    setPhotoPreviews([])
+    setIsSubmitting(false)
+    setUploadProgress("idle")
+    setReportLocation(null)
+    setPinPlacementMode(false)
   }
 
   const handleClose = () => {
     setShowReportSheet(false)
-    setSelectedCategory(null)
-    setDescription("")
-    setReportLocation(null)
-    setPinPlacementMode(false)
+    reset()
   }
 
   return (
@@ -115,14 +173,9 @@ export function ReportSheet() {
                 className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/20"
               >
                 <svg
-                  width="32"
-                  height="32"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  width="32" height="32" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2.5"
+                  strokeLinecap="round" strokeLinejoin="round"
                   className="text-accent"
                 >
                   <motion.path
@@ -160,14 +213,9 @@ export function ReportSheet() {
                     </span>
                   )}
                 </div>
-                {/* shadcn Button for "Change" */}
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowReportSheet(false)
-                    setPinPlacementMode(true)
-                  }}
+                  variant="outline" size="sm"
+                  onClick={() => { setShowReportSheet(false); setPinPlacementMode(true) }}
                   className="h-7 rounded-lg text-xs"
                 >
                   Change
@@ -208,7 +256,7 @@ export function ReportSheet() {
                 </div>
               </div>
 
-              {/* Description — shadcn Textarea */}
+              {/* Description */}
               <div>
                 <p className="mb-2 text-sm font-medium text-muted-foreground">
                   Description (optional)
@@ -225,14 +273,71 @@ export function ReportSheet() {
                 </p>
               </div>
 
-              {/* Photo button — shadcn Button */}
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-2 rounded-xl border-dashed text-muted-foreground"
-              >
-                <Camera className="h-4 w-4" />
-                Add photo
-              </Button>
+              {/* ── Photos section ── */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Photos{" "}
+                    <span className="text-xs font-normal text-muted-foreground/60">
+                      (optional, up to {MAX_PHOTOS})
+                    </span>
+                  </p>
+                  {photos.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {photos.length}/{MAX_PHOTOS}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {/* Existing photo thumbnails */}
+                  {photoPreviews.map((preview, i) => (
+                    <motion.div
+                      key={preview}
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-border"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={preview}
+                        alt={`Photo ${i + 1}`}
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        onClick={() => removePhoto(i)}
+                        className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </motion.div>
+                  ))}
+
+                  {/* Add photo button */}
+                  {photos.length < MAX_PHOTOS && (
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border bg-secondary/40 text-muted-foreground transition hover:border-accent/50 hover:bg-secondary hover:text-accent"
+                    >
+                      <ImagePlus className="h-5 w-5" />
+                      <span className="text-[10px]">Add</span>
+                    </motion.button>
+                  )}
+                </div>
+
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  capture="environment"
+                  className="hidden"
+                  onChange={handlePhotoSelect}
+                />
+              </div>
 
               {/* Submit */}
               <motion.button
@@ -251,8 +356,23 @@ export function ReportSheet() {
                   />
                 )}
                 <span className="relative z-10 flex items-center gap-2">
-                  <Send className="h-4 w-4" />
-                  {isSubmitting ? "Submitting..." : "Submit Report"}
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {uploadProgress === "uploading" ? "Uploading photos…" : "Submitting…"}
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Submit Report
+                      {photos.length > 0 && (
+                        <span className="ml-0.5 flex items-center gap-0.5 text-xs opacity-70">
+                          <Camera className="h-3 w-3" />
+                          {photos.length}
+                        </span>
+                      )}
+                    </>
+                  )}
                 </span>
               </motion.button>
             </motion.div>
@@ -262,3 +382,4 @@ export function ReportSheet() {
     </Sheet>
   )
 }
+

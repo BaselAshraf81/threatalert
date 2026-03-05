@@ -10,7 +10,8 @@ import {
   Timestamp,
   increment,
 } from "firebase/firestore"
-import { db } from "./firebase"
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
+import { db, storage } from "./firebase"
 import type { Incident, IncidentCategory } from "./types"
 import { getCategoryInfo } from "./types"
 
@@ -47,6 +48,8 @@ function initFirestoreListener() {
   unsubscribeFirestore = onSnapshot(q, (snapshot) => {
     incidents = snapshot.docs.map((d) => {
       const data = d.data()
+      // Normalise: merge legacy single photoUrl into photoUrls array
+      const photoUrls: string[] = data.photoUrls ?? (data.photoUrl ? [data.photoUrl] : [])
       return {
         id: d.id,
         category: data.category,
@@ -59,7 +62,7 @@ function initFirestoreListener() {
         flagVotes: data.flagVotes || 0,
         createdAt: data.createdAt?.toMillis() || Date.now(),
         expiresAt: data.expiresAt?.toMillis() || Date.now(),
-        photoUrl: data.photoUrl,
+        photoUrls,
       } as Incident
     })
     notify()
@@ -93,13 +96,33 @@ async function callApi(functionName: string, body: Record<string, unknown>): Pro
   return res
 }
 
+// ── Photo upload ──────────────────────────────────────────────────────────────
+
+/**
+ * Upload up to 3 image files to Firebase Storage under incidents/<uuid>/<index>.
+ * Returns an array of public download URLs.
+ */
+export async function uploadPhotos(incidentId: string, files: File[]): Promise<string[]> {
+  const capped = files.slice(0, 3)
+  const urls = await Promise.all(
+    capped.map(async (file, i) => {
+      const ext = file.name.split(".").pop() ?? "jpg"
+      const storageRef = ref(storage, `incidents/${incidentId}/${i}.${ext}`)
+      await uploadBytes(storageRef, file, { contentType: file.type })
+      return getDownloadURL(storageRef)
+    })
+  )
+  return urls
+}
+
 // ── Write: create incident ────────────────────────────────────────────────────
 
 export async function addIncident(
   category: IncidentCategory,
   description: string,
   lat: number,
-  lng: number
+  lng: number,
+  photoUrls?: string[]
 ): Promise<Incident> {
   const categoryInfo = getCategoryInfo(category)
   const now = Date.now()
@@ -122,11 +145,15 @@ export async function addIncident(
       resolveVotes: 0,
       createdAt: Timestamp.fromMillis(now),
       expiresAt: Timestamp.fromMillis(now + ttlMs),
+      ...(photoUrls?.length ? { photoUrls } : {}),
     })
     id = docRef.id
   } else {
     // ── Production / emulator: Cloud Function HTTP endpoint ──
-    const res = await callApi("createIncident", { category, description, lat, lng })
+    const res = await callApi("createIncident", {
+      category, description, lat, lng,
+      ...(photoUrls?.length ? { photoUrls } : {}),
+    })
     ;({ id } = await res.json())
   }
 
@@ -144,6 +171,7 @@ export async function addIncident(
     flagVotes: 0,
     createdAt: now,
     expiresAt: now + ttlMs,
+    photoUrls: photoUrls ?? [],
   } as Incident
 }
 
@@ -188,6 +216,19 @@ export async function voteFlag(id: string): Promise<void> {
 export function hasVoted(id: string): string | null {
   if (typeof window === "undefined") return null
   return localStorage.getItem(`voted_${id}`)
+}
+
+/**
+ * After an incident is created, patch its photoUrls field.
+ * This is called after the photos have been uploaded to Storage.
+ */
+export async function patchIncidentPhotos(id: string, photoUrls: string[]): Promise<void> {
+  if (!photoUrls.length) return
+  if (USE_DIRECT_WRITES) {
+    await updateDoc(doc(db, "incidents", id), { photoUrls })
+  } else {
+    await callApi("patchIncidentPhotos", { incidentId: id, photoUrls })
+  }
 }
 
 export function subscribe(listener: () => void): () => void {

@@ -76,6 +76,7 @@ export function MapView() {
     setSelectedIncident, setShowReportSheet, setReportLocation,
     userLocation, locationStatus, requestLocation,
     pinPlacementMode, setPinPlacementMode,
+    pendingShareTarget, setPendingShareTarget,
   } = useAppState()
 
   const [mapReady,     setMapReady]     = useState(false)
@@ -185,12 +186,24 @@ export function MapView() {
       }
       if (!hasFlownToUser.current) {
         hasFlownToUser.current = true
-        mapRef.current.flyTo([userLocation.lat, userLocation.lng], 15, { duration: 1.4 })
+        // Only fly to user if we're NOT waiting to fly to a shared incident
+        if (!pendingShareTarget) {
+          mapRef.current.flyTo([userLocation.lat, userLocation.lng], 15, { duration: 1.4 })
+        }
       }
     } catch (error) {
       console.error("Error updating user marker:", error)
     }
   }, [userLocation, mapReady])
+
+  // ── Fly to shared incident on deep link ───────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current || !mapReady || !pendingShareTarget) return
+    // Fly to the incident coordinates at a close zoom
+    mapRef.current.flyTo([pendingShareTarget.lat, pendingShareTarget.lng], 16, { duration: 1.6 })
+    // Mark that we've handled the initial fly-to so user location won't override it
+    hasFlownToUser.current = true
+  }, [pendingShareTarget, mapReady])
 
   // ── Theme tiles ───────────────────────────────────────────────────────────
   useEffect(() => {

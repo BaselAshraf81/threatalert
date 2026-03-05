@@ -20,7 +20,8 @@ export interface Incident {
   flagVotes: number
   createdAt: number
   expiresAt: number
-  photoUrl?: string
+  photoUrl?: string   // legacy single-photo field (read only)
+  photoUrls?: string[] // multi-photo support
 }
 
 export interface CategoryInfo {
