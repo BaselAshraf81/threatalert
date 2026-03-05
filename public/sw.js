@@ -1,5 +1,5 @@
 // Service Worker for ThreatAlert PWA
-const CACHE_NAME = 'threatalert-v3'
+const CACHE_NAME = 'threatalert-v4'
 const STATIC_CACHE = [
   '/',
   '/manifest.json',

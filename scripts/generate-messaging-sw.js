@@ -79,8 +79,8 @@ const messaging = firebase.messaging();
 
 // Handle background push messages (app not in foreground)
 messaging.onBackgroundMessage((payload) => {
-  const { title, body } = payload.notification || {};
-  const { incidentId, category, url } = payload.data || {};
+  // Data-only messages: title/body come from payload.data (no payload.notification)
+  const { title, body, incidentId, category, url } = payload.data || {};
 
   self.registration.showNotification(title || 'ThreatAlert', {
     body: body || 'New incident reported near you.',

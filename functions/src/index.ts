@@ -411,11 +411,21 @@ async function triggerNotifications(
           docId: doc.id,
           promise: admin.messaging().send({
             token: subscriber.token,
-            notification: {
-              title: `${getCategoryLabel(incident.category)} Alert`,
+            // Data-only message: no top-level `notification` field so FCM does NOT
+            // auto-display on Android. onBackgroundMessage in the SW handles display,
+            // giving us full control over the notification data (including the deep-link URL).
+            // All values must be strings per FCM spec.
+            data: {
+              title: getCategoryLabel(incident.category) + " Alert",
               body: incident.description,
+              incidentId,
+              category: incident.category,
+              distance: distance.toFixed(1),
+              url: `${process.env.ALLOWED_ORIGIN || "https://threatalert.live"}/?i=${incidentId}&lat=${incident.lat}&lng=${incident.lng}`,
             },
-            data: { incidentId, category: incident.category, distance: distance.toFixed(1) },
+            // Required for data-only messages to wake the SW on Android
+            android: { priority: "high" },
+            webpush: { headers: { Urgency: "high" } },
           }),
         })
       }
