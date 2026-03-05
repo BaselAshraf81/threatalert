@@ -4,25 +4,25 @@
   "description": "Anonymous community-driven incident awareness map",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0e1a",
+  "background_color": "#0e1220",
   "theme_color": "#e54d42",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icon-light-32x32.png",
-      "sizes": "32x32",
+      "src": "/favicon-48x48.png",
+      "sizes": "48x48",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-dark-32x32.png",
-      "sizes": "32x32",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/apple-icon.png",
+      "src": "/apple-touch-icon-180x180.png",
       "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon-1024x1024.png",
+      "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any maskable"
     }
@@ -37,8 +37,8 @@
       "url": "/?action=report",
       "icons": [
         {
-          "src": "/icon-light-32x32.png",
-          "sizes": "32x32",
+          "src": "/favicon-48x48.png",
+          "sizes": "48x48",
           "type": "image/png"
         }
       ]
