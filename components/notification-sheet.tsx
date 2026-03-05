@@ -125,7 +125,7 @@ export function NotificationSheet() {
     <Sheet open={showNotificationSheet} onOpenChange={(open) => !open && handleClose()}>
       <SheetContent
         side="bottom"
-        className="mx-auto max-w-lg rounded-t-2xl border-t border-border/60 bg-card/90 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl backdrop-blur-2xl dark:bg-card/80 sm:px-6 sm:pt-6"
+        className="mx-auto max-h-[82svh] max-w-lg overflow-y-auto rounded-t-2xl border-t border-border/60 bg-card/90 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl backdrop-blur-2xl dark:bg-card/80 sm:px-6 sm:pt-6"
       >
         {/* Drag handle */}
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted-foreground/30 sm:mb-5" />

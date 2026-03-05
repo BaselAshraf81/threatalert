@@ -22,6 +22,10 @@ type DomeGalleryProps = {
   imageBorderRadius?: string;
   openedImageBorderRadius?: string;
   grayscale?: boolean;
+  /** Called with the source-array index when a tile is clicked (skips the enlarge animation) */
+  onItemClick?: (srcIndex: number) => void;
+  /** Per-tile overlay nodes rendered inside each tile (indexed by source-array position) */
+  itemBadges?: React.ReactNode[];
 };
 
 type ItemDef = {
@@ -31,6 +35,7 @@ type ItemDef = {
   y: number;
   sizeX: number;
   sizeY: number;
+  srcIndex: number;
 };
 
 const DEFAULT_IMAGES: ImageItem[] = [
@@ -95,7 +100,7 @@ function buildItems(pool: ImageItem[], seg: number): ItemDef[] {
 
   const totalSlots = coords.length;
   if (pool.length === 0) {
-    return coords.map(c => ({ ...c, src: '', alt: '' }));
+    return coords.map(c => ({ ...c, src: '', alt: '', srcIndex: 0 }));
   }
   if (pool.length > totalSlots) {
     console.warn(
@@ -128,7 +133,8 @@ function buildItems(pool: ImageItem[], seg: number): ItemDef[] {
   return coords.map((c, i) => ({
     ...c,
     src: usedImages[i].src,
-    alt: usedImages[i].alt
+    alt: usedImages[i].alt,
+    srcIndex: i % normalizedImages.length,
   }));
 }
 
@@ -156,7 +162,9 @@ export default function DomeGallery({
   openedImageHeight = '400px',
   imageBorderRadius = '30px',
   openedImageBorderRadius = '30px',
-  grayscale = true
+  grayscale = true,
+  onItemClick,
+  itemBadges,
 }: DomeGalleryProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -531,9 +539,15 @@ export default function DomeGallery({
       if (movedRef.current) return;
       if (performance.now() - lastDragEndAt.current < 80) return;
       if (openingRef.current) return;
+      if (onItemClick) {
+        const itemEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+        const idx = parseInt(itemEl.dataset.srcIndex ?? '-1', 10);
+        if (idx >= 0) onItemClick(idx);
+        return;
+      }
       openItemFromElement(e.currentTarget);
     },
-    [openItemFromElement]
+    [openItemFromElement, onItemClick]
   );
 
   const onTilePointerUp = useCallback(
@@ -543,9 +557,15 @@ export default function DomeGallery({
       if (movedRef.current) return;
       if (performance.now() - lastDragEndAt.current < 80) return;
       if (openingRef.current) return;
+      if (onItemClick) {
+        const itemEl = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
+        const idx = parseInt(itemEl.dataset.srcIndex ?? '-1', 10);
+        if (idx >= 0) onItemClick(idx);
+        return;
+      }
       openItemFromElement(e.currentTarget);
     },
-    [openItemFromElement]
+    [openItemFromElement, onItemClick]
   );
 
   useEffect(() => {
@@ -720,6 +740,7 @@ export default function DomeGallery({
                 data-offset-y={it.y}
                 data-size-x={it.sizeX}
                 data-size-y={it.sizeY}
+                data-src-index={it.srcIndex}
                 style={
                   {
                     ['--offset-x' as any]: it.x,
@@ -739,6 +760,19 @@ export default function DomeGallery({
                 >
                   <img src={it.src} draggable={false} alt={it.alt} />
                 </div>
+                {itemBadges?.[it.srcIndex] && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '18px',
+                      left: '18px',
+                      zIndex: 10,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    {itemBadges[it.srcIndex]}
+                  </div>
+                )}
               </div>
             ))}
           </div>

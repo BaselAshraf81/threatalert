@@ -32,6 +32,9 @@ interface AppState {
   /** Set when the app is opened via a shared incident link. MapView flies here; detail sheet opens once the incident loads. */
   pendingShareTarget: { id: string; lat: number; lng: number } | null
   setPendingShareTarget: (t: { id: string; lat: number; lng: number } | null) => void
+  /** Globe gallery visibility */
+  showGallery: boolean
+  setShowGallery: (v: boolean) => void
 }
 
 const AppContext = createContext<AppState | null>(null)
@@ -47,6 +50,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [notificationThreshold, setNotificationThreshold] = useState(5)
   const [votedIncidents, setVotedIncidents] = useState<Set<string>>(new Set())
   const [pendingShareTarget, setPendingShareTarget] = useState<{ id: string; lat: number; lng: number } | null>(null)
+  const [showGallery, setShowGallery] = useState(false)
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("pending")
@@ -144,6 +148,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         markVoted,
         pendingShareTarget,
         setPendingShareTarget,
+        showGallery,
+        setShowGallery,
       }}
     >
       {children}
