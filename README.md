@@ -1,4 +1,7 @@
-# ThreatAlert
+<p align="center">
+  <img src="public/cover-image.png" alt="ThreatAlert Banner" width="100%">
+</p>
+
 
 A free, anonymous, community-driven Progressive Web App for real-time local incident awareness. No accounts, no ads, no data sold.
 
