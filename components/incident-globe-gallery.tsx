@@ -58,6 +58,11 @@ export function IncidentGlobeGallery() {
   const incidentsRef = useRef<Incident[]>([])
   const hoveredIdxRef = useRef<number | null>(null)
 
+  // Ref mirror of showGallery so the D3 timer callback reads current value without stale closure
+  const showGalleryRef = useRef(showGallery)
+  // Guard: heavy globe init runs exactly once
+  const isInitializedRef = useRef(false)
+
   const [hoveredIncident, setHoveredIncident] = useState<{ incident: Incident; x: number; y: number } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [statsVisible, setStatsVisible] = useState(false)
@@ -68,6 +73,9 @@ export function IncidentGlobeGallery() {
   )
 
   useEffect(() => { incidentsRef.current = activeIncidents }, [activeIncidents])
+
+  // Keep ref in sync with React state so timer callback always sees live value
+  useEffect(() => { showGalleryRef.current = showGallery }, [showGallery])
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -82,15 +90,25 @@ export function IncidentGlobeGallery() {
     gridScanRef.current?.updateLook(nx, ny)
   }, [])
 
+  // Stats visibility — lightweight, still driven by showGallery
   useEffect(() => {
-    if (!showGallery) { setStatsVisible(false); return }
+    if (!showGallery) {
+      setStatsVisible(false)
+      hoveredIdxRef.current = null
+      setHoveredIncident(null)
+      return
+    }
     const t = setTimeout(() => setStatsVisible(true), 800)
     return () => clearTimeout(t)
   }, [showGallery])
 
+  // ─── One-time globe initialization ────────────────────────────────────────
+  // showGallery is intentionally NOT in the dep array.
+  // The overlay is always mounted; the D3 timer skips work when invisible.
   useEffect(() => {
-    if (!showGallery) return
+    if (isInitializedRef.current) return
     if (!canvasRef.current || !containerRef.current) return
+    isInitializedRef.current = true
 
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -99,7 +117,6 @@ export function IncidentGlobeGallery() {
     const dpr = window.devicePixelRatio || 1
     let W = 0, H = 0, baseRadius = 0
 
-    // Cached path generator and graticule — created ONCE, reused every frame
     let pathGen = d3.geoPath().context(ctx)
     let gratGeom = d3.geoGraticule()()
 
@@ -155,11 +172,11 @@ export function IncidentGlobeGallery() {
       return dots
     }
 
-    // ── Render — optimized ───────────────────────────────────────────────
     function render(t: number) {
-      const proj = projectionRef.current!
+      // Skip all GPU/canvas work while the overlay is invisible — zero cost
+      if (!showGalleryRef.current) return
 
-      // Keep cached path gen in sync with current projection state
+      const proj = projectionRef.current!
       pathGen.projection(proj)
 
       ctx.clearRect(0, 0, W, H)
@@ -176,7 +193,7 @@ export function IncidentGlobeGallery() {
 
       if (!landFeaturesRef.current) return
 
-      // Graticule — reuse cached geometry object
+      // Graticule
       ctx.beginPath()
       pathGen(gratGeom)
       ctx.strokeStyle = "rgba(30,60,140,0.2)"
@@ -196,25 +213,22 @@ export function IncidentGlobeGallery() {
       ctx.lineWidth = 0.6
       ctx.stroke()
 
-      // ── Land dots — ONE beginPath/fill for ALL dots ──────────────────
-      // Before: 8,613 individual beginPath/arc/fill calls
-      // After:  1 beginPath + N arc() + 1 fill  ← >100x fewer draw calls
+      // Land dots — ONE beginPath/fill for ALL dots
       ctx.beginPath()
       for (const dot of allDotsRef.current) {
         const p = proj([dot.lng, dot.lat])
         if (!p || p[0] < 0 || p[0] > W || p[1] < 0 || p[1] > H) continue
-        ctx.moveTo(p[0] + 0.9, p[1])   // moveTo prevents lines between dots
+        ctx.moveTo(p[0] + 0.9, p[1])
         ctx.arc(p[0], p[1], 0.9, 0, TWO_PI)
       }
       ctx.fillStyle = "rgba(80,120,230,0.5)"
       ctx.fill()
 
-      // ── Incident markers ─────────────────────────────────────────────
+      // Incident markers
       const incs = incidentsRef.current
       const pulse = (t * 0.002) % TWO_PI
       const hovIdx = hoveredIdxRef.current
 
-      // Pre-project all visible incidents once
       type VP = { i: number; px: number; py: number; color: string; isHovered: boolean }
       const visible: VP[] = []
       for (let i = 0; i < incs.length; i++) {
@@ -252,7 +266,7 @@ export function IncidentGlobeGallery() {
       }
       ctx.globalAlpha = 1
 
-      // Pass 3: glow halos — simple alpha fill, no createRadialGradient per frame
+      // Pass 3: glow halos
       for (const { px, py, color, isHovered } of visible) {
         ctx.beginPath()
         ctx.arc(px, py, isHovered ? 16 : 10, 0, TWO_PI)
@@ -278,7 +292,6 @@ export function IncidentGlobeGallery() {
       }
     }
 
-    // Init projection
     resize()
     projectionRef.current = d3
       .geoOrthographic()
@@ -287,7 +300,9 @@ export function IncidentGlobeGallery() {
       .clipAngle(90)
     pathGen = d3.geoPath().projection(projectionRef.current).context(ctx)
 
+    // Timer stays alive forever; skips render body when overlay is hidden
     const timer = d3.timer((elapsed) => {
+      if (!showGalleryRef.current) return
       if (autoRotateRef.current) {
         rotationRef.current[0] += 0.18
         projectionRef.current!.rotate(rotationRef.current)
@@ -374,7 +389,6 @@ export function IncidentGlobeGallery() {
       }
     }
 
-    // Suppress ClickSpark (and any other click handlers) when releasing a drag
     function onClick(e: MouseEvent) {
       if (performance.now() - dragEndAt < 300) {
         e.stopPropagation()
@@ -409,7 +423,6 @@ export function IncidentGlobeGallery() {
     ;(async () => {
       try {
         if (_cachedLandFeatures) {
-          // Already loaded — reuse instantly, no network round-trip
           landFeaturesRef.current = _cachedLandFeatures
           allDotsRef.current = _cachedDots
           setIsLoading(false)
@@ -424,7 +437,6 @@ export function IncidentGlobeGallery() {
         data.features.forEach((f: any) => {
           genDots(f, 14).forEach(([lng, lat]) => dots.push({ lng, lat }))
         })
-        // Store in module cache so reopen is instant
         _cachedLandFeatures = data
         _cachedDots = dots
         landFeaturesRef.current = data
@@ -444,215 +456,227 @@ export function IncidentGlobeGallery() {
       canvas.removeEventListener("mouseleave", onMouseLeave)
       canvas.removeEventListener("wheel", onWheel)
       ro.disconnect()
-      // Note: land data stays in module cache — reopen will be instant
     }
-  }, [showGallery, setSelectedIncident, setShowGallery])
+  }, [setSelectedIncident, setShowGallery])
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <AnimatePresence>
-      {showGallery && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.4 }}
-          onMouseMove={handleMouseMove}
-          style={{ position: "fixed", inset: 0, zIndex: 3000, overflow: "hidden", background: "#00000f" }}
-        >
-          {/* GridScan bg */}
-          <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
-            <GridScan
-              ref={gridScanRef}
-              sensitivity={0.95}
-              lineThickness={1}
-              linesColor="#12122a"
-              gridScale={0.08}
-              scanColor="#1a3aff"
-              scanOpacity={0.15}
-              enablePost
-              bloomIntensity={0.4}
-              chromaticAberration={0.02}
-              noiseIntensity={0.15}
-              scanDirection="pingpong"
+    // ── Always in the DOM — no unmount/remount on toggle ────────────────────
+    // opacity + pointerEvents swap instead of conditional render.
+    // GridScan keeps its WebGL context; canvas keeps D3 timer — instant reopen.
+    <div
+      onMouseMove={handleMouseMove}
+      style={{
+        position: "fixed", inset: 0, zIndex: 3000, overflow: "hidden",
+        background: "#00000f",
+        opacity: showGallery ? 1 : 0,
+        pointerEvents: showGallery ? "auto" : "none",
+        transition: "opacity 0.4s ease",
+      }}
+    >
+      {/* GridScan bg — stays alive, never re-initialises */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
+        <GridScan
+          ref={gridScanRef}
+          sensitivity={0.95}
+          lineThickness={1}
+          linesColor="#12122a"
+          gridScale={0.08}
+          scanColor="#1a3aff"
+          scanOpacity={0.15}
+          enablePost
+          bloomIntensity={0.4}
+          chromaticAberration={0.02}
+          noiseIntensity={0.15}
+          scanDirection="pingpong"
+        />
+      </div>
+
+      {/* Vignette */}
+      <div style={{
+        position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+        background: "radial-gradient(ellipse 75% 75% at 50% 50%, transparent 30%, rgba(0,0,15,0.88) 100%)"
+      }} />
+
+      {/* Globe canvas — always mounted */}
+      <div ref={containerRef} style={{ position: "absolute", inset: 0, zIndex: 2 }}>
+        <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+      </div>
+
+      {/* Loading */}
+      <AnimatePresence>
+        {isLoading && showGallery && (
+          <motion.div
+            initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.7 }}
+            style={{
+              position: "absolute", inset: 0, zIndex: 8,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexDirection: "column", gap: 14, pointerEvents: "none",
+            }}
+          >
+            <motion.div
+              animate={{ scale: [1, 1.2, 1], opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              style={{
+                width: 52, height: 52, borderRadius: "50%",
+                border: "1.5px solid rgba(80,140,255,0.7)",
+                boxShadow: "0 0 40px rgba(80,140,255,0.25), inset 0 0 20px rgba(80,140,255,0.1)",
+              }}
             />
-          </div>
+            <p style={{ color: "rgba(80,140,255,0.6)", fontSize: 11, letterSpacing: "0.18em", fontFamily: "monospace", margin: 0 }}>
+              LOADING GLOBE DATA
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          {/* Vignette */}
-          <div style={{
-            position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
-            background: "radial-gradient(ellipse 75% 75% at 50% 50%, transparent 30%, rgba(0,0,15,0.88) 100%)"
-          }} />
-
-          {/* Globe canvas */}
-          <div ref={containerRef} style={{ position: "absolute", inset: 0, zIndex: 2 }}>
-            <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
-          </div>
-
-          {/* Loading */}
-          <AnimatePresence>
-            {isLoading && (
-              <motion.div
-                initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.7 }}
-                style={{
-                  position: "absolute", inset: 0, zIndex: 8,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  flexDirection: "column", gap: 14, pointerEvents: "none",
-                }}
-              >
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1], opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  style={{
-                    width: 52, height: 52, borderRadius: "50%",
-                    border: "1.5px solid rgba(80,140,255,0.7)",
-                    boxShadow: "0 0 40px rgba(80,140,255,0.25), inset 0 0 20px rgba(80,140,255,0.1)",
-                  }}
-                />
-                <p style={{ color: "rgba(80,140,255,0.6)", fontSize: 11, letterSpacing: "0.18em", fontFamily: "monospace", margin: 0 }}>
-                  LOADING GLOBE DATA
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Hover tooltip */}
-          <AnimatePresence>
-            {hoveredIncident && (
-              <motion.div
-                key={hoveredIncident.incident.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ duration: 0.12 }}
-                style={{
-                  position: "absolute", zIndex: 20, pointerEvents: "none",
-                  left: Math.min(hoveredIncident.x + 18, window.innerWidth - 260),
-                  top: Math.max(10, hoveredIncident.y - 60),
-                  maxWidth: 240,
-                }}
-              >
-                <StarBorder
-                  as="div"
-                  color={CATEGORY_COLORS[hoveredIncident.incident.category]}
-                  speed="4s"
-                  thickness={1.5}
-                  style={{
-                    borderRadius: 10,
-                    display: "block",
-                    background: "rgba(3,5,18,0.97)",
-                    backdropFilter: "blur(20px)",
-                    boxShadow: `0 12px 40px rgba(0,0,0,0.7), 0 0 30px ${CATEGORY_COLORS[hoveredIncident.incident.category]}30`,
-                  }}
-                >
-                  <div style={{
-                    borderRadius: 9, padding: "11px 14px",
+      {/* ── Hover tooltip ───────────────────────────────────────────────────
+          FIX: background/backdropFilter live on the INNER div, not on
+          StarBorder itself. This matches the top-bar "ThreatAlert Beta"
+          pattern: the opaque inner surface covers .inner-content so the
+          gradient orbs only peek through the 1.5px padding edge — they
+          never bleed through the transparent inner-content layer.
+      ─────────────────────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {hoveredIncident && showGallery && (
+          <motion.div
+            key={hoveredIncident.incident.id}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.12 }}
+            style={{
+              position: "absolute", zIndex: 20, pointerEvents: "none",
+              left: Math.min(hoveredIncident.x + 18, window.innerWidth - 260),
+              top: Math.max(10, hoveredIncident.y - 60),
+              maxWidth: 240,
+            }}
+          >
+            <StarBorder
+              as="div"
+              color={CATEGORY_COLORS[hoveredIncident.incident.category]}
+              speed="4s"
+              thickness={1.5}
+              style={{
+                borderRadius: 10,
+                display: "block",
+                // Outer shadow only — no fill on the container
+                boxShadow: `0 12px 40px rgba(0,0,0,0.7), 0 0 30px ${CATEGORY_COLORS[hoveredIncident.incident.category]}30`,
+              }}
+            >
+              {/* Opaque background on the inner div — covers .inner-content fully */}
+              <div style={{
+                borderRadius: 9,
+                padding: "11px 14px",
+                background: "rgba(3,5,18,0.97)",
+                backdropFilter: "blur(20px)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                  <span style={{ fontSize: 15 }}>{CATEGORY_EMOJI[hoveredIncident.incident.category]}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
+                    color: CATEGORY_COLORS[hoveredIncident.incident.category],
+                    textTransform: "uppercase", fontFamily: "monospace",
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
-                      <span style={{ fontSize: 15 }}>{CATEGORY_EMOJI[hoveredIncident.incident.category]}</span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
-                        color: CATEGORY_COLORS[hoveredIncident.incident.category],
-                        textTransform: "uppercase", fontFamily: "monospace",
-                      }}>
-                        {getCategoryInfo(hoveredIncident.incident.category).label}
-                      </span>
-                    </div>
-                    <p style={{
-                      margin: 0, fontSize: 12, color: "rgba(210,225,255,0.9)",
-                      lineHeight: 1.55, fontFamily: "system-ui, sans-serif",
-                    }}>
-                      {hoveredIncident.incident.description?.slice(0, 90) || "No description"}
-                      {(hoveredIncident.incident.description?.length ?? 0) > 90 && "…"}
-                    </p>
-                    <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center" }}>
-                      <span style={{ fontSize: 10, color: "rgba(100,130,200,0.65)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: 3 }}>
-                        <MapPin size={8} />
-                        {hoveredIncident.incident.lat.toFixed(2)}°, {hoveredIncident.incident.lng.toFixed(2)}°
-                      </span>
-                      <span style={{ fontSize: 10, color: "rgba(100,130,200,0.5)", fontFamily: "monospace", marginLeft: "auto", display: "flex", alignItems: "center", gap: 3 }}>
-                        <Clock size={8} />
-                        {timeAgo(hoveredIncident.incident.createdAt)}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: 8, paddingTop: 7, borderTop: "1px solid rgba(80,100,200,0.15)" }}>
-                      <span style={{ fontSize: 10, color: "rgba(80,120,255,0.65)", fontFamily: "monospace", letterSpacing: "0.06em" }}>
-                        CLICK TO VIEW DETAILS →
-                      </span>
-                    </div>
-                  </div>
-                </StarBorder>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Stats panel */}
-          <AnimatePresence>
-            {statsVisible && activeIncidents.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, x: 24 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 24 }}
-                transition={{ duration: 0.5 }}
-                style={{
-                  position: "absolute", right: 20, top: "50%", transform: "translateY(-50%)",
-                  zIndex: 10, display: "flex", flexDirection: "column", gap: 5,
-                }}
-              >
-                {CATEGORIES.map((cat, ci) => {
-                  const count = categoryCounts[cat.id] || 0
-                  if (count === 0) return null
-                  return (
-                    <motion.div
-                      key={cat.id}
-                      initial={{ opacity: 0, x: 12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.3, delay: ci * 0.06 }}
-                    >
-                      <StarBorder
-                        as="div"
-                        color={cat.color}
-                        speed="6s"
-                        thickness={1.5}
-                        style={{
-                          borderRadius: 8,
-                          display: "block",
-                          minWidth: 140,
-                          background: "rgba(3,5,18,0.88)",
-                          backdropFilter: "blur(12px)",
-                        }}
-                      >
-                        <div style={{
-                          display: "flex", alignItems: "center", gap: 9,
-                          borderRadius: 7, padding: "6px 12px",
-                        }}>
-                          <span style={{ fontSize: 12 }}>{CATEGORY_EMOJI[cat.id]}</span>
-                          <span style={{ flex: 1, fontSize: 10, color: "rgba(180,195,255,0.65)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
-                            {cat.label.toUpperCase().slice(0, 13)}
-                          </span>
-                          <span style={{
-                            fontSize: 13, fontWeight: 700, color: cat.color,
-                            fontFamily: "monospace", minWidth: 20, textAlign: "right",
-                          }}>
-                            {count}
-                          </span>
-                        </div>
-                      </StarBorder>
-                    </motion.div>
-                  )
-                })}
-                <div style={{ marginTop: 4, padding: "4px 12px", borderTop: "1px solid rgba(80,100,200,0.12)" }}>
-                  <span style={{ fontSize: 10, color: "rgba(80,100,160,0.5)", fontFamily: "monospace", letterSpacing: "0.08em" }}>
-                    {activeIncidents.length} TOTAL INCIDENTS
+                    {getCategoryInfo(hoveredIncident.incident.category).label}
                   </span>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                <p style={{
+                  margin: 0, fontSize: 12, color: "rgba(210,225,255,0.9)",
+                  lineHeight: 1.55, fontFamily: "system-ui, sans-serif",
+                }}>
+                  {hoveredIncident.incident.description?.slice(0, 90) || "No description"}
+                  {(hoveredIncident.incident.description?.length ?? 0) > 90 && "…"}
+                </p>
+                <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, color: "rgba(100,130,200,0.65)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: 3 }}>
+                    <MapPin size={8} />
+                    {hoveredIncident.incident.lat.toFixed(2)}°, {hoveredIncident.incident.lng.toFixed(2)}°
+                  </span>
+                  <span style={{ fontSize: 10, color: "rgba(100,130,200,0.5)", fontFamily: "monospace", marginLeft: "auto", display: "flex", alignItems: "center", gap: 3 }}>
+                    <Clock size={8} />
+                    {timeAgo(hoveredIncident.incident.createdAt)}
+                  </span>
+                </div>
+                <div style={{ marginTop: 8, paddingTop: 7, borderTop: "1px solid rgba(80,100,200,0.15)" }}>
+                  <span style={{ fontSize: 10, color: "rgba(80,120,255,0.65)", fontFamily: "monospace", letterSpacing: "0.06em" }}>
+                    CLICK TO VIEW DETAILS →
+                  </span>
+                </div>
+              </div>
+            </StarBorder>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          {/* Header */}
+      {/* Stats panel — same StarBorder fix applied */}
+      <AnimatePresence>
+        {statsVisible && activeIncidents.length > 0 && showGallery && (
+          <motion.div
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 24 }}
+            transition={{ duration: 0.5 }}
+            style={{
+              position: "absolute", right: 20, top: "50%", transform: "translateY(-50%)",
+              zIndex: 10, display: "flex", flexDirection: "column", gap: 5,
+            }}
+          >
+            {CATEGORIES.map((cat, ci) => {
+              const count = categoryCounts[cat.id] || 0
+              if (count === 0) return null
+              return (
+                <motion.div
+                  key={cat.id}
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: ci * 0.06 }}
+                >
+                  <StarBorder
+                    as="div"
+                    color={cat.color}
+                    speed="6s"
+                    thickness={1}
+                    style={{ borderRadius: 8, display: "block", minWidth: 140 }}
+                  >
+                    {/* Background on inner div — same fix */}
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 9,
+                      borderRadius: 7, padding: "6px 12px",
+                      background: "rgba(3,5,18,0.88)",
+                      backdropFilter: "blur(12px)",
+                    }}>
+                      <span style={{ fontSize: 12 }}>{CATEGORY_EMOJI[cat.id]}</span>
+                      <span style={{ flex: 1, fontSize: 10, color: "rgba(180,195,255,0.65)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                        {cat.label.toUpperCase().slice(0, 13)}
+                      </span>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700, color: cat.color,
+                        fontFamily: "monospace", minWidth: 20, textAlign: "right",
+                      }}>
+                        {count}
+                      </span>
+                    </div>
+                  </StarBorder>
+                </motion.div>
+              )
+            })}
+            <div style={{ marginTop: 4, padding: "4px 12px", borderTop: "1px solid rgba(80,100,200,0.12)" }}>
+              <span style={{ fontSize: 10, color: "rgba(80,100,160,0.5)", fontFamily: "monospace", letterSpacing: "0.08em" }}>
+                {activeIncidents.length} TOTAL INCIDENTS
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Header */}
+      <AnimatePresence>
+        {showGallery && (
           <motion.div
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.4, delay: 0.1 }}
             style={{
               position: "absolute", top: 0, left: 0, right: 0, zIndex: 10,
@@ -691,11 +715,16 @@ export function IncidentGlobeGallery() {
               <X size={15} />
             </Button>
           </motion.div>
+        )}
+      </AnimatePresence>
 
-          {/* Bottom hint */}
+      {/* Bottom hint */}
+      <AnimatePresence>
+        {showGallery && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ delay: 1.2, duration: 0.8 }}
             style={{
               position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 10,
@@ -707,8 +736,8 @@ export function IncidentGlobeGallery() {
               SCROLL TO ZOOM · DRAG TO ROTATE · CLICK MARKER TO INSPECT
             </p>
           </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }

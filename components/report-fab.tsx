@@ -56,11 +56,15 @@ export function ReportFAB() {
         )}
       </AnimatePresence>
 
+      {/* FIX: background lives on the inner motion.button (children), not on
+          StarBorder — identical pattern to the top-bar "ThreatAlert Beta"
+          pill. The opaque button surface fully covers .inner-content so the
+          gradient orbs only show as a thin shimmer at the 1px padding edge. */}
       <StarBorder
         as="div"
         color={pinPlacementMode ? "#888888" : "#e54d42"}
         speed="5s"
-        thickness={2}
+        thickness={1}
         className="rounded-full"
       >
         <motion.button
