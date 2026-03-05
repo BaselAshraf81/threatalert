@@ -10,37 +10,57 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
 }
 
+declare global {
+  interface Window {
+    __installPromptEvent: BeforeInstallPromptEvent | null
+  }
+}
+
 export function InstallPWAButton() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isInstallable, setIsInstallable] = useState(false)
 
   useEffect(() => {
-    // Never intercept the event if already running as an installed PWA
-    if (window.matchMedia("(display-mode: standalone)").matches) {
-      setIsInstallable(false)
-      return
-    }
+    // Already installed — nothing to show
+    if (window.matchMedia("(display-mode: standalone)").matches) return
 
-    const handler = (e: Event) => {
-      // Only suppress the browser's mini-infobar if we intend to show our own UI
-      e.preventDefault()
-      setDeferredPrompt(e as BeforeInstallPromptEvent)
+    function adopt(e: BeforeInstallPromptEvent) {
+      setDeferredPrompt(e)
       setIsInstallable(true)
     }
 
-    window.addEventListener("beforeinstallprompt", handler)
-    return () => window.removeEventListener("beforeinstallprompt", handler)
+    // Case 1: the early-capture script in layout.tsx already caught the event
+    // before React hydrated — grab it directly from window
+    if (window.__installPromptEvent) {
+      adopt(window.__installPromptEvent)
+      return
+    }
+
+    // Case 2: event hasn't fired yet (slower devices / first paint still in progress)
+    // Listen for both the real event and the custom relay event
+    function onCaptured() {
+      if (window.__installPromptEvent) adopt(window.__installPromptEvent)
+    }
+    function onPrompt(e: Event) {
+      adopt(e as BeforeInstallPromptEvent)
+    }
+
+    window.addEventListener("installpromptcaptured", onCaptured)
+    window.addEventListener("beforeinstallprompt", onPrompt)
+    return () => {
+      window.removeEventListener("installpromptcaptured", onCaptured)
+      window.removeEventListener("beforeinstallprompt", onPrompt)
+    }
   }, [])
 
   const handleInstall = async () => {
     if (!deferredPrompt) return
-
     deferredPrompt.prompt()
     const { outcome } = await deferredPrompt.userChoice
-
     if (outcome === "accepted") {
       setIsInstallable(false)
       setDeferredPrompt(null)
+      window.__installPromptEvent = null
     }
   }
 

@@ -61,6 +61,18 @@ export default function RootLayout({
         >
           {children}
         </ThemeProvider>
+        {/* Capture beforeinstallprompt as early as possible — before React hydrates.
+            Android Chrome fires this event very early and it won't repeat, so we stash
+            it on window and the InstallPWAButton component picks it up from there. */}
+        <Script id="capture-install-prompt" strategy="beforeInteractive">{`
+          window.__installPromptEvent = null;
+          window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            window.__installPromptEvent = e;
+            window.dispatchEvent(new Event('installpromptcaptured'));
+          });
+        `}</Script>
+
         <Script id="register-sw" strategy="afterInteractive">
           {`
             if ('serviceWorker' in navigator) {
