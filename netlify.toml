@@ -14,6 +14,12 @@
   status = 200
   force = true
 
+[[redirects]]
+  from = "/api/patchIncidentPhotos"
+  to = "https://us-east1-threatalert-app-2026.cloudfunctions.net/patchIncidentPhotos"
+  status = 200
+  force = true
+
 [[headers]]
   for = "/*"
   [headers.values]
