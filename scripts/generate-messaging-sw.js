@@ -84,8 +84,8 @@ messaging.onBackgroundMessage((payload) => {
 
   self.registration.showNotification(title || 'ThreatAlert', {
     body: body || 'New incident reported near you.',
-    icon: '/icon-light-32x32.png',
-    badge: '/icon-light-32x32.png',
+    icon: '/favicon-32x32.png',
+    badge: '/favicon-32x32.png',
     vibrate: [200, 100, 200],
     data: { incidentId, category, url: '/' },
     actions: [

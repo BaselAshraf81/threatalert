@@ -3,9 +3,8 @@ const CACHE_NAME = 'threatalert-v1'
 const STATIC_CACHE = [
   '/',
   '/manifest.json',
-  '/icon-light-32x32.png',
-  '/icon-dark-32x32.png',
-  '/apple-icon.png'
+  '/favicon-32x32.png',
+  '/favicon-16x16.png',
 ]
 
 // Install event - cache static assets
@@ -75,8 +74,8 @@ self.addEventListener('push', (event) => {
   const data = event.data.json()
   const options = {
     body: data.body || 'New incident reported in your area',
-    icon: '/icon-light-32x32.png',
-    badge: '/icon-light-32x32.png',
+    icon: '/favicon-32x32.png',
+    badge: '/favicon-32x32.png',
     vibrate: [200, 100, 200],
     data: {
       incidentId: data.incidentId,

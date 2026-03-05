@@ -61,7 +61,7 @@ service cloud.firestore {
       allow read: if false;
 
       allow create: if request.resource.data.keys().hasOnly(
-                        ['token', 'type', 'lat', 'lng', 'radiusKm', 'threshold', 'worldwide', 'createdAt']
+                        ['token', 'type', 'lat', 'lng', 'radiusKm', 'threshold', 'worldwide', 'includeUnverified', 'createdAt']
                       )
                     && request.resource.data.type in ['fcm']
                     && request.resource.data.token is string
@@ -73,7 +73,9 @@ service cloud.firestore {
                     && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
                     && request.resource.data.radiusKm is number
                     && request.resource.data.radiusKm > 0
-                    && request.resource.data.threshold is number;
+                    && request.resource.data.threshold is number
+                    && (!('includeUnverified' in request.resource.data)
+                        || request.resource.data.includeUnverified is bool);
 
       allow delete: if true;
       allow update: if false;

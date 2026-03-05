@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAppState } from "@/hooks/use-app-state"
-import { subscribeToPush } from "@/lib/messaging"
+import { subscribeToPush, unsubscribeFromPush, getSubscriptionStatus } from "@/lib/messaging"
 import { motion } from "framer-motion"
-import { Bell, Shield, Loader2, CheckCircle2, AlertTriangle, Globe } from "lucide-react"
+import { Bell, BellOff, Shield, Loader2, CheckCircle2, AlertTriangle, Globe } from "lucide-react"
 import StarBorder from "@/components/StarBorder"
 import {
   Sheet,
@@ -19,7 +19,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { InstallPWAButton } from "@/components/install-pwa-button"
-type PushState = "idle" | "requesting" | "granted" | "denied" | "unsupported" | "error"
+
+type PushState = "checking" | "idle" | "subscribed" | "requesting" | "granted" | "unsubscribing" | "denied" | "unsupported" | "error"
 
 const RADIUS_OPTIONS = [1, 5, 10, 25]
 
@@ -36,13 +37,25 @@ export function NotificationSheet() {
     locationStatus,
   } = useAppState()
 
-  const [pushState, setPushState] = useState<PushState>("idle")
+  const [pushState, setPushState] = useState<PushState>("checking")
   const [errorMessage, setErrorMessage] = useState("")
   const [worldwide, setWorldwide] = useState(false)
   const [includeUnverified, setIncludeUnverified] = useState(false)
 
+  // On mount: silently check whether the user is already subscribed so the
+  // button reflects reality instead of always showing "Enable Browser Push".
+  useEffect(() => {
+    let cancelled = false
+    getSubscriptionStatus().then((status) => {
+      if (!cancelled) {
+        setPushState(status.subscribed ? "subscribed" : "idle")
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
   const handleActivatePush = async () => {
-    if (pushState === "requesting") return
+    if (pushState === "requesting" || pushState === "checking") return
 
     if (!userLocation) {
       showToast("Waiting for your location — try again in a moment.")
@@ -70,7 +83,7 @@ export function NotificationSheet() {
       )
       setTimeout(() => {
         setShowNotificationSheet(false)
-        setPushState("idle")
+        setPushState("subscribed")
       }, 1800)
     } else if (result.reason === "denied") {
       setPushState("denied")
@@ -84,17 +97,30 @@ export function NotificationSheet() {
     }
   }
 
+  const handleUnsubscribe = async () => {
+    if (pushState === "unsubscribing") return
+    setPushState("unsubscribing")
+    setErrorMessage("")
+
+    const result = await unsubscribeFromPush()
+    if (result.ok) {
+      showToast("Push notifications disabled.")
+      setPushState("idle")
+    } else {
+      setPushState("subscribed")
+      setErrorMessage(result.message)
+    }
+  }
+
   const handleClose = () => {
     setShowNotificationSheet(false)
-    if (pushState !== "granted") setPushState("idle")
+    if (pushState === "granted") setPushState("subscribed")
+    else if (pushState !== "subscribed") setPushState("idle")
     setErrorMessage("")
   }
 
-  const isActive =
-    pushState !== "idle" &&
-    pushState !== "denied" &&
-    pushState !== "unsupported" &&
-    pushState !== "error"
+  const isBusy = pushState === "requesting" || pushState === "checking" || pushState === "unsubscribing"
+  const isSubscribed = pushState === "subscribed"
 
   return (
     <Sheet open={showNotificationSheet} onOpenChange={(open) => !open && handleClose()}>
@@ -106,19 +132,35 @@ export function NotificationSheet() {
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted-foreground/30 sm:mb-5" />
 
         <SheetHeader className="mb-5 text-left">
-          <SheetTitle>Get Alerts Near You</SheetTitle>
+          <SheetTitle>
+            {isSubscribed ? "Alert Preferences" : "Get Alerts Near You"}
+          </SheetTitle>
           <SheetDescription className="sr-only">
             Configure your alert preferences and notification radius
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-col gap-5 sm:gap-6">
-          {/* ── Worldwide toggle (shadcn Switch) ── */}
+
+          {/* ── Already-subscribed banner ── */}
+          {isSubscribed && (
+            <div className="flex items-center gap-3 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-green-600 dark:text-green-400">
+                  Push alerts are active
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  You'll receive notifications for incidents in your area.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Worldwide toggle ── */}
           <div
             className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-all ${
-              worldwide
-                ? "border-accent bg-accent/10"
-                : "border-border bg-secondary/50"
+              worldwide ? "border-accent bg-accent/10" : "border-border bg-secondary/50"
             }`}
           >
             <Globe className={`h-4 w-4 shrink-0 ${worldwide ? "text-accent" : "text-muted-foreground"}`} />
@@ -137,11 +179,12 @@ export function NotificationSheet() {
               id="worldwide-switch"
               checked={worldwide}
               onCheckedChange={setWorldwide}
+              disabled={isSubscribed || isBusy}
               className="data-[state=checked]:bg-accent"
             />
           </div>
 
-          {/* ── Include unverified toggle (shadcn Switch) ── */}
+          {/* ── Include unverified toggle ── */}
           <div
             className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-all ${
               includeUnverified
@@ -165,12 +208,13 @@ export function NotificationSheet() {
               id="unverified-switch"
               checked={includeUnverified}
               onCheckedChange={setIncludeUnverified}
+              disabled={isSubscribed || isBusy}
               className="data-[state=checked]:bg-yellow-500"
             />
           </div>
 
-          {/* ── Radius (shadcn ToggleGroup) ── */}
-          <div className={worldwide ? "pointer-events-none opacity-40" : ""}>
+          {/* ── Radius ── */}
+          <div className={worldwide || isSubscribed ? "pointer-events-none opacity-40" : ""}>
             <p className="mb-2.5 text-sm font-medium text-muted-foreground sm:mb-3">Alert radius</p>
             <ToggleGroup
               type="single"
@@ -190,8 +234,8 @@ export function NotificationSheet() {
             </ToggleGroup>
           </div>
 
-          {/* ── Sensitivity (shadcn Slider) ── */}
-          <div>
+          {/* ── Sensitivity ── */}
+          <div className={isSubscribed ? "pointer-events-none opacity-40" : ""}>
             <div className="mb-2.5 flex items-center justify-between sm:mb-3">
               <p className="text-sm font-medium text-muted-foreground">Alert sensitivity</p>
               <span className="text-sm font-semibold text-accent">{notificationThreshold}+ reports</span>
@@ -210,8 +254,8 @@ export function NotificationSheet() {
             </div>
           </div>
 
-          {/* ── Location warning (shadcn Alert) ── */}
-          {locationStatus !== "granted" && !worldwide && (
+          {/* ── Location warning ── */}
+          {locationStatus !== "granted" && !worldwide && !isSubscribed && (
             <Alert className="border-yellow-500/20 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="text-xs leading-relaxed text-muted-foreground">
@@ -222,44 +266,63 @@ export function NotificationSheet() {
             </Alert>
           )}
 
-          {/* ── Error (shadcn Alert destructive) ── */}
-          {(pushState === "denied" || pushState === "unsupported" || pushState === "error") &&
-            errorMessage && (
-              <Alert variant="destructive" className="bg-destructive/10">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription className="text-xs leading-relaxed">
-                  {errorMessage}
-                </AlertDescription>
-              </Alert>
-            )}
-<InstallPWAButton />
-          {/* ── CTA ── */}
-          <StarBorder
-            as="div"
-            color="#e54d42"
-            speed="5s"
-            thickness={!isActive ? 2 : 0}
-            className="rounded-xl"
-            style={{ borderRadius: "0.75rem" }}
-          >
+          {/* ── Error ── */}
+          {(pushState === "denied" || pushState === "unsupported" || pushState === "error") && errorMessage && (
+            <Alert variant="destructive" className="bg-destructive/10">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-xs leading-relaxed">
+                {errorMessage}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <InstallPWAButton />
+
+          {/* ── Subscribe CTA ── */}
+          {!isSubscribed && (
+            <StarBorder
+              as="div"
+              color="#e54d42"
+              speed="5s"
+              thickness={!isBusy ? 2 : 0}
+              className="rounded-xl"
+              style={{ borderRadius: "0.75rem" }}
+            >
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={handleActivatePush}
+                disabled={isBusy}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:py-3.5"
+              >
+                {pushState === "requesting" && <Loader2 className="h-4 w-4 animate-spin" />}
+                {pushState === "granted"    && <CheckCircle2 className="h-4 w-4" />}
+                {pushState === "checking"   && <Loader2 className="h-4 w-4 animate-spin" />}
+                {!isBusy && pushState !== "granted" && <Bell className="h-4 w-4" />}
+
+                {pushState === "checking"   && "Checking…"}
+                {pushState === "idle"       && (worldwide ? "Enable Worldwide Alerts" : "Enable Browser Push")}
+                {pushState === "requesting" && "Requesting permission…"}
+                {pushState === "granted"    && "Notifications enabled!"}
+                {(pushState === "denied" || pushState === "unsupported" || pushState === "error") && "Try again"}
+              </motion.button>
+            </StarBorder>
+          )}
+
+          {/* ── Unsubscribe CTA ── */}
+          {isSubscribed && (
             <motion.button
               whileTap={{ scale: 0.97 }}
-              onClick={handleActivatePush}
-              disabled={isActive}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:py-3.5"
+              onClick={handleUnsubscribe}
+              disabled={isBusy}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 py-3 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50 sm:py-3.5"
             >
-              {pushState === "requesting" && <Loader2 className="h-4 w-4 animate-spin" />}
-              {pushState === "granted" && <CheckCircle2 className="h-4 w-4" />}
-              {!isActive && <Bell className="h-4 w-4" />}
-
-              {pushState === "idle" && (worldwide ? "Enable Worldwide Alerts" : "Enable Browser Push")}
-              {pushState === "requesting" && "Requesting permission…"}
-              {pushState === "granted" && "Notifications enabled!"}
-              {(pushState === "denied" || pushState === "unsupported" || pushState === "error") &&
-                "Try again"}
+              {pushState === "unsubscribing"
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <BellOff className="h-4 w-4" />}
+              {pushState === "unsubscribing" ? "Disabling…" : "Disable Notifications"}
             </motion.button>
-          </StarBorder>
-                
+          )}
+
           {/* ── Privacy note ── */}
           <div className="flex items-start gap-2.5 rounded-xl bg-secondary/50 px-3.5 py-2.5 sm:px-4 sm:py-3">
             <Shield className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
@@ -268,6 +331,7 @@ export function NotificationSheet() {
               identity and is not shared with other users.
             </p>
           </div>
+
         </div>
       </SheetContent>
     </Sheet>

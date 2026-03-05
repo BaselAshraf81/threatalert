@@ -62,9 +62,12 @@ async function checkRateLimit(
 
 /** CORS + JSON helpers */
 function setCors(res: functions.Response) {
-  // Only allow requests from our own hosting domain.
-  // Firebase Hosting rewrites make these same-origin, so this is defence-in-depth.
-  res.set("Access-Control-Allow-Origin", "*") // tighten to your domain in production
+  // Restrict to the configured origin; falls back to same-origin via Firebase Hosting rewrites.
+  // Set ALLOWED_ORIGIN in Firebase Function config: firebase functions:config:set app.allowed_origin="https://yourdomain.com"
+  const origin = process.env.ALLOWED_ORIGIN || ""
+  if (origin) {
+    res.set("Access-Control-Allow-Origin", origin)
+  }
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS")
   res.set("Access-Control-Allow-Headers", "Content-Type")
 }
@@ -172,8 +175,8 @@ export const patchIncidentPhotos = onRequest(
     const ip = getClientIp(req)
     const ipHash = hashIp(ip)
 
-    // Use same rate limit bucket as create (5/hr is shared)
-    const allowed = await checkRateLimit(ipHash, "create", 5)
+    // Separate rate limit bucket from createIncident (10 patches/hr is generous but isolated)
+    const allowed = await checkRateLimit(ipHash, "patch", 10)
     if (!allowed) {
       res.status(429).json({ error: "Rate limit exceeded." }); return
     }
@@ -324,15 +327,15 @@ export const onIncidentUpdate = functions.firestore
     if (newStatus !== after.status) {
       await change.after.ref.update({ status: newStatus })
     }
-    
-    // Send notifications when incident becomes active (verified)
+
+    // Determine which notification path applies — never both.
     if (newStatus === "active" && after.status === "pending") {
-      await triggerNotifications(incidentId, after)
-    }
-    
-    // Also send notifications for pending incidents if they meet threshold
-    // (for users who opted in to unverified threats)
-    if (after.status === "pending" && confirmVotesChanged) {
+      // Incident just got verified: notify everyone (verified + unverified subscribers).
+      // Pass the resolved status explicitly so triggerNotifications sees "active", not the
+      // stale "pending" that is still in `after` before the update above is committed.
+      await triggerNotifications(incidentId, { ...after, status: "active" })
+    } else if (after.status === "pending" && confirmVotesChanged) {
+      // Still pending but vote count changed: notify only subscribers who opted into unverified.
       await triggerNotifications(incidentId, after)
     }
 
@@ -362,22 +365,35 @@ export const expireIncidents = functions.pubsub
   })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Notifications helper (unchanged logic, kept internal)
+// Notifications helper
 // ─────────────────────────────────────────────────────────────────────────────
+
+// FCM error codes that mean the token is permanently invalid and should be removed.
+const STALE_TOKEN_ERRORS = new Set([
+  "messaging/registration-token-not-registered",
+  "messaging/invalid-registration-token",
+  "messaging/invalid-argument",
+])
 
 async function triggerNotifications(
   incidentId: string,
   incident: admin.firestore.DocumentData
 ) {
   try {
+    // NOTE: This performs a full collection scan. For production scale (>10k subscribers)
+    // replace with a geohash-bucketed query so only nearby subscriber docs are read.
+    // See: https://firebase.google.com/docs/firestore/solutions/geoqueries
     const subscribersSnapshot = await db.collection("subscribers").get()
-    const notifications: Promise<unknown>[] = []
+
+    type SendTask = { promise: Promise<string>; docId: string }
+    const tasks: SendTask[] = []
 
     subscribersSnapshot.forEach((doc) => {
       const subscriber = doc.data()
       const distance = calculateDistance(incident.lat, incident.lng, subscriber.lat, subscriber.lng)
 
-      // Check if subscriber wants unverified incidents or if this incident is verified
+      // statusMatches: incident is verified OR subscriber explicitly wants unverified alerts.
+      // `incident.status` is already the resolved status (callers pass { ...after, status: newStatus }).
       const statusMatches = subscriber.includeUnverified === true || incident.status === "active"
 
       if (
@@ -387,21 +403,45 @@ async function triggerNotifications(
         subscriber.type === "fcm" &&
         subscriber.token
       ) {
-        notifications.push(
-          admin.messaging().send({
+        tasks.push({
+          docId: doc.id,
+          promise: admin.messaging().send({
             token: subscriber.token,
             notification: {
               title: `${getCategoryLabel(incident.category)} Alert`,
               body: incident.description,
             },
             data: { incidentId, category: incident.category, distance: distance.toFixed(1) },
-          })
-        )
+          }),
+        })
       }
     })
 
-    await Promise.allSettled(notifications)
-    functions.logger.info(`Sent ${notifications.length} notifications for incident ${incidentId}`)
+    const results = await Promise.allSettled(tasks.map((t) => t.promise))
+
+    // Prune subscriber docs whose tokens are permanently invalid.
+    const staleDocIds: string[] = []
+    results.forEach((result, i) => {
+      if (result.status === "rejected") {
+        const code: string = (result.reason as { code?: string })?.code ?? ""
+        if (STALE_TOKEN_ERRORS.has(code)) {
+          staleDocIds.push(tasks[i].docId)
+          functions.logger.info(`Removing stale FCM token for subscriber ${tasks[i].docId}`)
+        } else {
+          functions.logger.warn(`FCM send failed for ${tasks[i].docId}:`, result.reason)
+        }
+      }
+    })
+
+    if (staleDocIds.length > 0) {
+      const batch = db.batch()
+      staleDocIds.forEach((id) => batch.delete(db.collection("subscribers").doc(id)))
+      await batch.commit()
+      functions.logger.info(`Deleted ${staleDocIds.length} stale subscriber(s)`)
+    }
+
+    const sent = results.filter((r) => r.status === "fulfilled").length
+    functions.logger.info(`Sent ${sent}/${tasks.length} notifications for incident ${incidentId}`)
   } catch (error) {
     functions.logger.error("Error sending notifications:", error)
   }
