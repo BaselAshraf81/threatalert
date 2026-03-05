@@ -309,11 +309,11 @@ export function NotificationSheet() {
           )}
 
           {/* ── Unsubscribe CTA ── */}
-          {isSubscribed && (
+          {(pushState === "subscribed" || pushState === "unsubscribing") && (
             <motion.button
               whileTap={{ scale: 0.97 }}
               onClick={handleUnsubscribe}
-              disabled={isBusy}
+              disabled={pushState === "unsubscribing"}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 py-3 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50 sm:py-3.5"
             >
               {pushState === "unsubscribing"
