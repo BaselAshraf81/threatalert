@@ -1,0 +1,44 @@
+{
+  "firestore": {
+    "database": "(default)",
+    "location": "us-east1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  },
+  "hosting": {
+    "public": "out",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/createIncident",
+        "function": "createIncident"
+      },
+      {
+        "source": "/api/vote",
+        "function": "vote"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "auth": {
+    "providers": {
+      "anonymous": true,
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "ThreatAlert",
+        "supportEmail": "bosbos.basel@gmail.com"
+      }
+    }
+  }
+}

@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ───────────────────────────────────────────────────
+    function isValidCategory() {
+      return request.resource.data.category in
+        ['crime', 'disaster', 'fire', 'infrastructure', 'unrest', 'custom'];
+    }
+    function isValidCoords() {
+      return request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.lat >= -90  && request.resource.data.lat <= 90
+        && request.resource.data.lng >= -180 && request.resource.data.lng <= 180;
+    }
+    function isValidDescription() {
+      return request.resource.data.description is string
+        && request.resource.data.description.size() <= 280;
+    }
+
+    // ── Incidents ──────────────────────────────────────────────────────────
+    // Anyone can read pending/active incidents — they always show on the map.
+    //
+    // Writes from the client are allowed when data is valid (this covers both
+    // the local-dev direct-write path AND any future anonymous usage).
+    // In production the Cloud Function also writes via admin SDK (bypasses rules).
+    match /incidents/{incidentId} {
+      allow read: if resource.data.status in ['active', 'pending'];
+
+      allow create: if isValidCategory()
+                    && isValidCoords()
+                    && isValidDescription()
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.confirmVotes == 1
+                    && request.resource.data.resolveVotes == 0;
+
+      // Only allow incrementing vote fields by 1, nothing else
+      allow update: if request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['confirmVotes', 'resolveVotes'])
+                    && (
+                      request.resource.data.confirmVotes == resource.data.confirmVotes + 1
+                      || request.resource.data.resolveVotes == resource.data.resolveVotes + 1
+                    );
+
+      allow delete: if false;
+    }
+
+    // ── Votes (server-side dedup) ──────────────────────────────────────────
+    match /votes/{voteId} {
+      allow read, write: if false;
+    }
+
+    // ── Rate-limit counters ────────────────────────────────────────────────
+    match /_ratelimit/{doc} {
+      allow read, write: if false;
+    }
+
+    // ── Subscribers ───────────────────────────────────────────────────────
+    match /subscribers/{subscriberId} {
+      allow read: if false;
+
+      allow create: if request.resource.data.keys().hasOnly(
+                        ['token', 'type', 'lat', 'lng', 'radiusKm', 'threshold', 'worldwide', 'createdAt']
+                      )
+                    && request.resource.data.type in ['fcm']
+                    && request.resource.data.token is string
+                    && request.resource.data.token.size() > 0
+                    && request.resource.data.token.size() <= 512
+                    && request.resource.data.lat is number
+                    && request.resource.data.lng is number
+                    && request.resource.data.lat >= -90  && request.resource.data.lat <= 90
+                    && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+                    && request.resource.data.radiusKm is number
+                    && request.resource.data.radiusKm > 0
+                    && request.resource.data.threshold is number;
+
+      allow delete: if true;
+      allow update: if false;
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "ThreatAlert",
+  "short_name": "ThreatAlert",
+  "description": "Anonymous community-driven incident awareness map",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#e54d42",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-light-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-dark-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["safety", "news", "social"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Report Incident",
+      "short_name": "Report",
+      "description": "Quickly report a new incident",
+      "url": "/?action=report",
+      "icons": [
+        {
+          "src": "/icon-light-32x32.png",
+          "sizes": "32x32",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
