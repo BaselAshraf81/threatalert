@@ -18,7 +18,6 @@ import { Slider } from "@/components/ui/slider"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
-import { InstallPWAButton } from "@/components/install-pwa-button"
 
 type PushState = "checking" | "idle" | "subscribed" | "requesting" | "granted" | "unsubscribing" | "denied" | "unsupported" | "error"
 
@@ -275,8 +274,6 @@ export function NotificationSheet() {
               </AlertDescription>
             </Alert>
           )}
-
-          <InstallPWAButton />
 
           {/* ── Subscribe CTA ── */}
           {!isSubscribed && (

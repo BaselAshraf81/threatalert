@@ -156,6 +156,10 @@ export const createIncident = onRequest(
       ipHash, incidentId: docRef.id, voteType: "confirm", createdAt: admin.firestore.FieldValue.serverTimestamp(),
     })
 
+    // Notify immediately on creation — onIncidentUpdate only fires on *updates*, so
+    // subscribers with threshold=1 would never be notified if nobody votes afterward.
+    await triggerNotifications(docRef.id, data)
+
     res.status(201).json({ id: docRef.id })
   }
 )

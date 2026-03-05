@@ -15,19 +15,20 @@ export function InstallPWAButton() {
   const [isInstallable, setIsInstallable] = useState(false)
 
   useEffect(() => {
+    // Never intercept the event if already running as an installed PWA
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setIsInstallable(false)
+      return
+    }
+
     const handler = (e: Event) => {
+      // Only suppress the browser's mini-infobar if we intend to show our own UI
       e.preventDefault()
       setDeferredPrompt(e as BeforeInstallPromptEvent)
       setIsInstallable(true)
     }
 
     window.addEventListener("beforeinstallprompt", handler)
-
-    // Check if already installed
-    if (window.matchMedia("(display-mode: standalone)").matches) {
-      setIsInstallable(false)
-    }
-
     return () => window.removeEventListener("beforeinstallprompt", handler)
   }, [])
 
