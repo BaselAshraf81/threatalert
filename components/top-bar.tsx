@@ -2,7 +2,7 @@
 
 import { useAppState } from "@/hooks/use-app-state"
 import { useTheme } from "next-themes"
-import { Bell, Shield, Sun, Moon, Globe } from "lucide-react"
+import { Bell, Shield, Sun, Moon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import StarBorder from "@/components/StarBorder"
@@ -10,7 +10,7 @@ import { GitHubStarsButton } from "@/components/github-stars-button"
 import { InstallPWAButton } from "@/components/install-pwa-button"
 
 export function TopBar() {
-  const { setShowNotificationSheet, setShowGallery } = useAppState()
+  const { setShowNotificationSheet } = useAppState()
   const { theme, setTheme } = useTheme()
 
   return (
@@ -46,15 +46,6 @@ export function TopBar() {
 
       {/* Right: Install PWA + GitHub stars + theme toggle */}
       <div className="pointer-events-auto ml-auto flex items-center gap-2 rounded-full">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setShowGallery(true)}
-          className="pointer-events-auto h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10"
-          aria-label="World incident gallery"
-        >
-          <Globe className="h-4 w-4" />
-        </Button>
         <InstallPWAButton />
         
         <GitHubStarsButton
