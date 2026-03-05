@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useCallback } from 'react';
 import { useGesture } from '@use-gesture/react';
 import './DomeGallery.css';
 
-type ImageItem = string | { src: string; alt?: string };
+type ImageItem = string | { src: string; alt?: string; incidentIndex?: number };
 
 type DomeGalleryProps = {
   images?: ImageItem[];
@@ -22,11 +22,16 @@ type DomeGalleryProps = {
   imageBorderRadius?: string;
   openedImageBorderRadius?: string;
   grayscale?: boolean;
+  /** Called with the original incident index when a tile is clicked. Overrides the built-in expand behaviour. */
+  onItemClick?: (incidentIndex: number) => void;
+  /** Custom renderer for each tile. Overrides the default <img> when provided. */
+  renderItem?: (props: { src: string; alt: string; incidentIndex: number }) => React.ReactNode;
 };
 
 type ItemDef = {
   src: string;
   alt: string;
+  incidentIndex: number;
   x: number;
   y: number;
   sizeX: number;
@@ -95,7 +100,7 @@ function buildItems(pool: ImageItem[], seg: number): ItemDef[] {
 
   const totalSlots = coords.length;
   if (pool.length === 0) {
-    return coords.map(c => ({ ...c, src: '', alt: '' }));
+    return coords.map(c => ({ ...c, src: '', alt: '', incidentIndex: 0 }));
   }
   if (pool.length > totalSlots) {
     console.warn(
@@ -103,11 +108,11 @@ function buildItems(pool: ImageItem[], seg: number): ItemDef[] {
     );
   }
 
-  const normalizedImages = pool.map(image => {
+  const normalizedImages = pool.map((image, idx) => {
     if (typeof image === 'string') {
-      return { src: image, alt: '' };
+      return { src: image, alt: '', incidentIndex: idx };
     }
-    return { src: image.src || '', alt: image.alt || '' };
+    return { src: image.src || '', alt: image.alt || '', incidentIndex: (image as any).incidentIndex ?? idx };
   });
 
   const usedImages = Array.from({ length: totalSlots }, (_, i) => normalizedImages[i % normalizedImages.length]);
@@ -128,7 +133,8 @@ function buildItems(pool: ImageItem[], seg: number): ItemDef[] {
   return coords.map((c, i) => ({
     ...c,
     src: usedImages[i].src,
-    alt: usedImages[i].alt
+    alt: usedImages[i].alt,
+    incidentIndex: usedImages[i].incidentIndex
   }));
 }
 
@@ -156,7 +162,9 @@ export default function DomeGallery({
   openedImageHeight = '400px',
   imageBorderRadius = '30px',
   openedImageBorderRadius = '30px',
-  grayscale = true
+  grayscale = true,
+  onItemClick,
+  renderItem,
 }: DomeGalleryProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -531,9 +539,16 @@ export default function DomeGallery({
       if (movedRef.current) return;
       if (performance.now() - lastDragEndAt.current < 80) return;
       if (openingRef.current) return;
+      if (onItemClick) {
+        // Navigate to the incident – read the index stored on the parent .item div
+        const itemEl = e.currentTarget.parentElement as HTMLElement | null;
+        const idx = itemEl ? parseInt(itemEl.dataset.incidentIndex ?? '-1', 10) : -1;
+        if (idx >= 0) onItemClick(idx);
+        return;
+      }
       openItemFromElement(e.currentTarget);
     },
-    [openItemFromElement]
+    [openItemFromElement, onItemClick]
   );
 
   const onTilePointerUp = useCallback(
@@ -543,9 +558,15 @@ export default function DomeGallery({
       if (movedRef.current) return;
       if (performance.now() - lastDragEndAt.current < 80) return;
       if (openingRef.current) return;
+      if (onItemClick) {
+        const itemEl = e.currentTarget.parentElement as HTMLElement | null;
+        const idx = itemEl ? parseInt(itemEl.dataset.incidentIndex ?? '-1', 10) : -1;
+        if (idx >= 0) onItemClick(idx);
+        return;
+      }
       openItemFromElement(e.currentTarget);
     },
-    [openItemFromElement]
+    [openItemFromElement, onItemClick]
   );
 
   useEffect(() => {
@@ -716,6 +737,7 @@ export default function DomeGallery({
                 key={`${it.x},${it.y},${i}`}
                 className="item"
                 data-src={it.src}
+                data-incident-index={it.incidentIndex}
                 data-offset-x={it.x}
                 data-offset-y={it.y}
                 data-size-x={it.sizeX}
@@ -737,7 +759,10 @@ export default function DomeGallery({
                   onClick={onTileClick}
                   onPointerUp={onTilePointerUp}
                 >
-                  <img src={it.src} draggable={false} alt={it.alt} />
+                  {renderItem
+                    ? renderItem({ src: it.src, alt: it.alt, incidentIndex: it.incidentIndex })
+                    : <img src={it.src} draggable={false} alt={it.alt} />
+                  }
                 </div>
               </div>
             ))}
