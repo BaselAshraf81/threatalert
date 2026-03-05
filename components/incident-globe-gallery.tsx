@@ -1,188 +1,74 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useEffect, useRef, useState, useMemo, useCallback } from "react"
+import * as d3 from "d3"
 import { motion, AnimatePresence } from "framer-motion"
-import { X } from "lucide-react"
+import { X, MapPin, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import DomeGallery from "./DomeGallery"
 import { GridScan } from "./GridScan"
 import type { GridScanHandle } from "./GridScan"
 import { useIncidents } from "@/hooks/use-incidents"
 import { useAppState } from "@/hooks/use-app-state"
-import { getCategoryInfo } from "@/lib/types"
+import { getCategoryInfo, CATEGORIES } from "@/lib/types"
 import type { Incident } from "@/lib/types"
-import * as flags from 'country-flag-icons/react/3x2'
 
-// ── Country flag emoji from ISO-3166-1 alpha-2 code ──────────────────────────
-function flagEmoji(countryCode: string): string {
-  if (!countryCode || countryCode.length !== 2) return "🌍"
-  return [...countryCode.toUpperCase()]
-    .map(c => String.fromCodePoint(0x1f1e6 - 65 + c.charCodeAt(0)))
-    .join("")
+const CATEGORY_COLORS: Record<string, string> = {
+  crime:          "#e54d42",
+  disaster:       "#e8903e",
+  fire:           "#d66038",
+  infrastructure: "#c9b23e",
+  unrest:         "#9b5de5",
+  custom:         "#8a8a8a",
 }
 
-// ── Category config ───────────────────────────────────────────────────────────
 const CATEGORY_EMOJI: Record<string, string> = {
-  crime: "🚨",
-  disaster: "⛈️",
-  fire: "🔥",
-  infrastructure: "🚧",
-  unrest: "📢",
-  custom: "⚠️",
+  crime: "🚨", disaster: "⛈️", fire: "🔥",
+  infrastructure: "🚧", unrest: "📢", custom: "⚠️",
 }
 
-// ── Generate a styled SVG data-URL card for incidents without photos ──────────
-function makeInfoCard(incident: Incident): string {
-  const cat = getCategoryInfo(incident.category)
-  const emoji = CATEGORY_EMOJI[incident.category] || "⚠️"
-  const rawDesc = incident.description?.trim() || "No description provided."
-  const loc = `${incident.lat.toFixed(3)}°, ${incident.lng.toFixed(3)}°`
+const TWO_PI = Math.PI * 2
 
-  // Word-wrap description into ≤28-char lines
-  const words = rawDesc.split(" ")
-  const lines: string[] = []
-  let cur = ""
-  for (const w of words) {
-    const candidate = cur ? `${cur} ${w}` : w
-    if (candidate.length > 28) {
-      if (cur) lines.push(cur)
-      cur = w
-    } else {
-      cur = candidate
-    }
-  }
-  if (cur) lines.push(cur)
-  const descLines = lines.slice(0, 5)
-
-  const descSvg = descLines
-    .map((l, i) => `<tspan x="200" dy="${i === 0 ? 0 : 22}">${escSvg(l)}</tspan>`)
-    .join("")
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0a0a1a"/>
-      <stop offset="100%" stop-color="#12082a"/>
-    </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-    </filter>
-  </defs>
-
-  <!-- Background -->
-  <rect width="400" height="300" fill="url(#g)" rx="20"/>
-
-  <!-- Top accent bar -->
-  <rect x="0" y="0" width="400" height="5" fill="${cat.color}" rx="2.5"/>
-
-  <!-- Subtle grid lines -->
-  <line x1="0" y1="60" x2="400" y2="60" stroke="${cat.color}" stroke-opacity="0.08" stroke-width="1"/>
-  <line x1="0" y1="240" x2="400" y2="240" stroke="${cat.color}" stroke-opacity="0.08" stroke-width="1"/>
-
-  <!-- Glow circle -->
-  <circle cx="200" cy="60" r="36" fill="${cat.color}" fill-opacity="0.12"/>
-
-  <!-- Emoji icon -->
-  <text x="200" y="77" font-family="Apple Color Emoji, Segoe UI Emoji, sans-serif"
-        font-size="36" text-anchor="middle">${emoji}</text>
-
-  <!-- Category label -->
-  <text x="200" y="115" font-family="system-ui, Arial, sans-serif" font-size="14"
-        text-anchor="middle" fill="${cat.color}" font-weight="700" letter-spacing="1">
-    ${escSvg(cat.label.toUpperCase())}
-  </text>
-
-  <!-- Description -->
-  <text x="200" y="148" font-family="system-ui, Arial, sans-serif" font-size="12.5"
-        text-anchor="middle" fill="#c8c8d8" line-height="1.5">
-    ${descSvg}
-  </text>
-
-  <!-- Divider -->
-  <line x1="40" y1="245" x2="360" y2="245" stroke="${cat.color}" stroke-opacity="0.25" stroke-width="1"/>
-
-  <!-- Location -->
-  <text x="200" y="265" font-family="system-ui, Arial, sans-serif" font-size="10.5"
-        text-anchor="middle" fill="#5a5a7a">
-    📍 ${escSvg(loc)}
-  </text>
-</svg>`
-
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+function timeAgo(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000)
+  if (s < 60) return `${s}s ago`
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
 }
 
-function escSvg(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
+const HIT_RADIUS = 18
 
-// ── Reverse-geocode lat/lng → ISO-3166-1 alpha-2 via Nominatim ───────────────
-const geocodeCache = new Map<string, string>()
-
-async function fetchCountryCode(lat: number, lng: number): Promise<string> {
-  const key = `${lat.toFixed(2)},${lng.toFixed(2)}`
-  if (geocodeCache.has(key)) return geocodeCache.get(key)!
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=3`
-    const res = await fetch(url, {
-      headers: { "Accept-Language": "en", "User-Agent": "ThreatAlert/1.0" },
-    })
-    if (!res.ok) return "XX"
-    const data = await res.json()
-    const cc: string = data?.address?.country_code?.toUpperCase() ?? "XX"
-    geocodeCache.set(key, cc)
-    return cc
-  } catch {
-    return "XX"
-  }
-}
-
-// ── Flag badge rendered inside a tile ────────────────────────────────────────
-function FlagBadge({ countryCode }: { countryCode: string | null }) {
-  if (!countryCode || countryCode === "XX") return null
-  
-  // Get the flag component dynamically
-  const FlagComponent = (flags as any)[countryCode]
-  
-  if (!FlagComponent) return null
-  
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "linear-gradient(135deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.65) 100%)",
-        backdropFilter: "blur(10px)",
-        borderRadius: "6px",
-        padding: "4px",
-        border: "1.5px solid rgba(255,255,255,0.18)",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1)",
-        userSelect: "none",
-        overflow: "hidden",
-      }}
-    >
-      <FlagComponent 
-        style={{ 
-          width: "28px", 
-          height: "20px",
-          display: "block",
-          borderRadius: "2px",
-        }} 
-      />
-    </span>
-  )
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
 export function IncidentGlobeGallery() {
   const { showGallery, setShowGallery, setSelectedIncident } = useAppState()
   const { incidents } = useIncidents()
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const gridScanRef = useRef<GridScanHandle>(null)
+
+  const projectionRef = useRef<d3.GeoProjection | null>(null)
+  const rotationRef = useRef<[number, number]>([0, 0])
+  const autoRotateRef = useRef(true)
+  const landFeaturesRef = useRef<any>(null)
+  const allDotsRef = useRef<{ lng: number; lat: number }[]>([])
+  const incidentsRef = useRef<Incident[]>([])
+  const hoveredIdxRef = useRef<number | null>(null)
+
+  const [hoveredIncident, setHoveredIncident] = useState<{ incident: Incident; x: number; y: number } | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [statsVisible, setStatsVisible] = useState(false)
+
+  const activeIncidents = useMemo(
+    () => [...incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200),
+    [incidents]
+  )
+
+  useEffect(() => { incidentsRef.current = activeIncidents }, [activeIncidents])
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    activeIncidents.forEach(inc => { counts[inc.category] = (counts[inc.category] || 0) + 1 })
+    return counts
+  }, [activeIncidents])
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -191,68 +77,361 @@ export function IncidentGlobeGallery() {
     gridScanRef.current?.updateLook(nx, ny)
   }, [])
 
-  // Keep only the most recent 60 incidents (gallery has limited tiles)
-  const activeIncidents = useMemo(
-    () => [...incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 60),
-    [incidents]
-  )
-
-  // Build image list for DomeGallery
-  const images = useMemo(
-    () =>
-      activeIncidents.map(inc => {
-        const firstPhoto =
-          inc.photoUrls?.[0] ?? (inc.photoUrl ? inc.photoUrl : null)
-        return {
-          src: firstPhoto ?? makeInfoCard(inc),
-          alt: `${getCategoryInfo(inc.category).label} — ${inc.description?.slice(0, 60) || ""}`,
-        }
-      }),
-    [activeIncidents]
-  )
-
-  // Country codes (fetched lazily)
-  const [countryCodes, setCountryCodes] = useState<Record<number, string>>({})
-  const fetchedRef = useRef(false)
+  useEffect(() => {
+    if (!showGallery) { setStatsVisible(false); return }
+    const t = setTimeout(() => setStatsVisible(true), 800)
+    return () => clearTimeout(t)
+  }, [showGallery])
 
   useEffect(() => {
-    if (!showGallery || fetchedRef.current || activeIncidents.length === 0) return
-    fetchedRef.current = true
+    if (!showGallery) return
+    if (!canvasRef.current || !containerRef.current) return
 
-    // Stagger requests to avoid rate-limiting Nominatim
-    activeIncidents.forEach((inc, i) => {
-      setTimeout(async () => {
-        const cc = await fetchCountryCode(inc.lat, inc.lng)
-        if (cc && cc !== "XX") {
-          setCountryCodes(prev => ({ ...prev, [i]: cc }))
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    const ctx = canvas.getContext("2d")!
+
+    const dpr = window.devicePixelRatio || 1
+    let W = 0, H = 0, baseRadius = 0
+
+    // Cached path generator and graticule — created ONCE, reused every frame
+    let pathGen = d3.geoPath().context(ctx)
+    let gratGeom = d3.geoGraticule()()
+
+    function resize() {
+      const cr = container.getBoundingClientRect()
+      W = cr.width; H = cr.height
+      baseRadius = Math.min(W, H) * 0.38
+      canvas.width = W * dpr; canvas.height = H * dpr
+      canvas.style.width = `${W}px`; canvas.style.height = `${H}px`
+      ctx.resetTransform()
+      ctx.scale(dpr, dpr)
+      if (projectionRef.current) {
+        projectionRef.current.translate([W / 2, H / 2])
+        pathGen = d3.geoPath().projection(projectionRef.current).context(ctx)
+      }
+    }
+
+    function ptInPoly(pt: [number, number], ring: number[][]): boolean {
+      const [x, y] = pt; let inside = false
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i]; const [xj, yj] = ring[j]
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+      }
+      return inside
+    }
+
+    function ptInFeature(pt: [number, number], feat: any): boolean {
+      const g = feat.geometry
+      if (g.type === "Polygon") {
+        if (!ptInPoly(pt, g.coordinates[0])) return false
+        for (let i = 1; i < g.coordinates.length; i++) if (ptInPoly(pt, g.coordinates[i])) return false
+        return true
+      }
+      if (g.type === "MultiPolygon") {
+        for (const poly of g.coordinates) {
+          if (ptInPoly(pt, poly[0])) {
+            let inHole = false
+            for (let i = 1; i < poly.length; i++) if (ptInPoly(pt, poly[i])) { inHole = true; break }
+            if (!inHole) return true
+          }
         }
-      }, i * 120)
+      }
+      return false
+    }
+
+    function genDots(feat: any, spacing = 14): [number, number][] {
+      const dots: [number, number][] = []
+      const [[minLng, minLat], [maxLng, maxLat]] = d3.geoBounds(feat)
+      const step = spacing * 0.08
+      for (let lng = minLng; lng <= maxLng; lng += step)
+        for (let lat = minLat; lat <= maxLat; lat += step)
+          if (ptInFeature([lng, lat], feat)) dots.push([lng, lat])
+      return dots
+    }
+
+    // ── Render — optimized ───────────────────────────────────────────────
+    function render(t: number) {
+      const proj = projectionRef.current!
+
+      // Keep cached path gen in sync with current projection state
+      pathGen.projection(proj)
+
+      ctx.clearRect(0, 0, W, H)
+      const sc = proj.scale()
+
+      // Ocean
+      ctx.beginPath()
+      ctx.arc(W / 2, H / 2, sc, 0, TWO_PI)
+      ctx.fillStyle = "#010d1e"
+      ctx.fill()
+      ctx.strokeStyle = "rgba(60,100,220,0.35)"
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+
+      if (!landFeaturesRef.current) return
+
+      // Graticule — reuse cached geometry object
+      ctx.beginPath()
+      pathGen(gratGeom)
+      ctx.strokeStyle = "rgba(30,60,140,0.2)"
+      ctx.lineWidth = 0.5
+      ctx.stroke()
+
+      // Land fill — single batched path
+      ctx.beginPath()
+      landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
+      ctx.fillStyle = "rgba(20,40,90,0.2)"
+      ctx.fill()
+
+      // Land outline — single batched path
+      ctx.beginPath()
+      landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
+      ctx.strokeStyle = "rgba(60,100,200,0.3)"
+      ctx.lineWidth = 0.6
+      ctx.stroke()
+
+      // ── Land dots — ONE beginPath/fill for ALL dots ──────────────────
+      // Before: 8,613 individual beginPath/arc/fill calls
+      // After:  1 beginPath + N arc() + 1 fill  ← >100x fewer draw calls
+      ctx.beginPath()
+      for (const dot of allDotsRef.current) {
+        const p = proj([dot.lng, dot.lat])
+        if (!p || p[0] < 0 || p[0] > W || p[1] < 0 || p[1] > H) continue
+        ctx.moveTo(p[0] + 0.9, p[1])   // moveTo prevents lines between dots
+        ctx.arc(p[0], p[1], 0.9, 0, TWO_PI)
+      }
+      ctx.fillStyle = "rgba(80,120,230,0.5)"
+      ctx.fill()
+
+      // ── Incident markers ─────────────────────────────────────────────
+      const incs = incidentsRef.current
+      const pulse = (t * 0.002) % TWO_PI
+      const hovIdx = hoveredIdxRef.current
+
+      // Pre-project all visible incidents once
+      type VP = { i: number; px: number; py: number; color: string; isHovered: boolean }
+      const visible: VP[] = []
+      for (let i = 0; i < incs.length; i++) {
+        const p = proj([incs[i].lng, incs[i].lat])
+        if (!p || p[0] < 0 || p[0] > W || p[1] < 0 || p[1] > H) continue
+        visible.push({
+          i, px: p[0], py: p[1],
+          color: CATEGORY_COLORS[incs[i].category] || "#8a8a8a",
+          isHovered: hovIdx === i,
+        })
+      }
+
+      // Pass 1: outer pulse rings
+      for (const { i, px, py, color, isHovered } of visible) {
+        const offset = (i * 1.3) % TWO_PI
+        const pv = (Math.sin(pulse + offset) + 1) / 2
+        ctx.beginPath()
+        ctx.arc(px, py, 5 + pv * (isHovered ? 16 : 10), 0, TWO_PI)
+        ctx.strokeStyle = color
+        ctx.globalAlpha = (1 - pv) * (isHovered ? 0.75 : 0.45)
+        ctx.lineWidth = isHovered ? 1.5 : 1
+        ctx.stroke()
+      }
+
+      // Pass 2: second pulse rings (offset phase)
+      for (const { i, px, py, color, isHovered } of visible) {
+        const offset = (i * 1.3) % TWO_PI
+        const pv2 = (Math.sin(pulse + offset + Math.PI) + 1) / 2
+        ctx.beginPath()
+        ctx.arc(px, py, 4 + pv2 * (isHovered ? 22 : 14), 0, TWO_PI)
+        ctx.strokeStyle = color
+        ctx.globalAlpha = (1 - pv2) * (isHovered ? 0.45 : 0.2)
+        ctx.lineWidth = 0.8
+        ctx.stroke()
+      }
+      ctx.globalAlpha = 1
+
+      // Pass 3: glow halos — simple alpha fill, no createRadialGradient per frame
+      for (const { px, py, color, isHovered } of visible) {
+        ctx.beginPath()
+        ctx.arc(px, py, isHovered ? 16 : 10, 0, TWO_PI)
+        ctx.fillStyle = color + (isHovered ? "30" : "16")
+        ctx.fill()
+        if (isHovered) {
+          ctx.beginPath()
+          ctx.arc(px, py, 7, 0, TWO_PI)
+          ctx.fillStyle = color + "44"
+          ctx.fill()
+        }
+      }
+
+      // Pass 4: core dots
+      for (const { px, py, color, isHovered } of visible) {
+        ctx.beginPath()
+        ctx.arc(px, py, isHovered ? 4.5 : 2.8, 0, TWO_PI)
+        ctx.fillStyle = isHovered ? "#ffffff" : color
+        ctx.fill()
+        ctx.strokeStyle = isHovered ? color : "rgba(255,255,255,0.5)"
+        ctx.lineWidth = 0.8
+        ctx.stroke()
+      }
+    }
+
+    // Init projection
+    resize()
+    projectionRef.current = d3
+      .geoOrthographic()
+      .scale(baseRadius)
+      .translate([W / 2, H / 2])
+      .clipAngle(90)
+    pathGen = d3.geoPath().projection(projectionRef.current).context(ctx)
+
+    const timer = d3.timer((elapsed) => {
+      if (autoRotateRef.current) {
+        rotationRef.current[0] += 0.18
+        projectionRef.current!.rotate(rotationRef.current)
+      }
+      render(elapsed)
     })
-  }, [showGallery, activeIncidents])
 
-  // Reset fetch flag when incidents change
-  useEffect(() => {
-    fetchedRef.current = false
-  }, [activeIncidents.length])
+    // Drag + hover interaction
+    let dragStart: { mx: number; my: number; rot: [number, number] } | null = null
+    let didDrag = false
+    let dragEndAt = 0
 
-  // Build badge nodes for DomeGallery itemBadges prop
-  const itemBadges = useMemo(
-    () =>
-      activeIncidents.map((_, i) =>
-        countryCodes[i] ? <FlagBadge key={i} countryCode={countryCodes[i]} /> : null
-      ),
-    [activeIncidents, countryCodes]
-  )
+    function getCanvasXY(e: MouseEvent) {
+      const r = canvas.getBoundingClientRect()
+      return { x: e.clientX - r.left, y: e.clientY - r.top }
+    }
 
-  const handleItemClick = useCallback(
-    (srcIndex: number) => {
-      const incident = activeIncidents[srcIndex]
-      if (!incident) return
-      setSelectedIncident(incident)
-      setShowGallery(false)
-    },
-    [activeIncidents, setSelectedIncident, setShowGallery]
-  )
+    function findNearest(cx: number, cy: number): number | null {
+      const proj = projectionRef.current!
+      const incs = incidentsRef.current
+      let best: number | null = null, bestD = HIT_RADIUS
+      for (let i = 0; i < incs.length; i++) {
+        const p = proj([incs[i].lng, incs[i].lat])
+        if (!p) continue
+        const d = Math.hypot(p[0] - cx, p[1] - cy)
+        if (d < bestD) { bestD = d; best = i }
+      }
+      return best
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      const { x, y } = getCanvasXY(e)
+      if (dragStart) {
+        didDrag = true
+        autoRotateRef.current = false
+        const dx = x - dragStart.mx, dy = y - dragStart.my
+        rotationRef.current[0] = dragStart.rot[0] + dx * 0.4
+        rotationRef.current[1] = Math.max(-85, Math.min(85, dragStart.rot[1] - dy * 0.4))
+        projectionRef.current!.rotate(rotationRef.current)
+        hoveredIdxRef.current = null
+        setHoveredIncident(null)
+        return
+      }
+      const idx = findNearest(x, y)
+      hoveredIdxRef.current = idx
+      canvas.style.cursor = idx !== null ? "pointer" : "grab"
+      if (idx !== null) {
+        const canvasR = canvas.getBoundingClientRect()
+        const containerR = container.getBoundingClientRect()
+        const p = projectionRef.current!([incidentsRef.current[idx].lng, incidentsRef.current[idx].lat])!
+        setHoveredIncident({
+          incident: incidentsRef.current[idx],
+          x: canvasR.left - containerR.left + p[0],
+          y: canvasR.top - containerR.top + p[1],
+        })
+      } else {
+        setHoveredIncident(null)
+      }
+    }
+
+    function onMouseDown(e: MouseEvent) {
+      const { x, y } = getCanvasXY(e)
+      dragStart = { mx: x, my: y, rot: [rotationRef.current[0], rotationRef.current[1]] }
+      didDrag = false
+      canvas.style.cursor = "grabbing"
+    }
+
+    function onMouseUp(e: MouseEvent) {
+      const wasDrag = didDrag
+      dragStart = null
+      canvas.style.cursor = "grab"
+      if (wasDrag) {
+        dragEndAt = performance.now()
+        setTimeout(() => { autoRotateRef.current = true }, 2500)
+      } else {
+        const { x, y } = getCanvasXY(e)
+        const idx = findNearest(x, y)
+        if (idx !== null) {
+          setSelectedIncident(incidentsRef.current[idx])
+          setShowGallery(false)
+        } else {
+          setTimeout(() => { autoRotateRef.current = true }, 20)
+        }
+      }
+    }
+
+    // Suppress ClickSpark (and any other click handlers) when releasing a drag
+    function onClick(e: MouseEvent) {
+      if (performance.now() - dragEndAt < 300) {
+        e.stopPropagation()
+        e.preventDefault()
+      }
+    }
+
+    function onMouseLeave() {
+      hoveredIdxRef.current = null
+      setHoveredIncident(null)
+    }
+
+    function onWheel(e: WheelEvent) {
+      e.preventDefault()
+      const factor = e.deltaY > 0 ? 0.92 : 1.08
+      const proj = projectionRef.current!
+      const newS = Math.max(baseRadius * 0.5, Math.min(baseRadius * 2.5, proj.scale() * factor))
+      proj.scale(newS)
+    }
+
+    canvas.addEventListener("mousemove", onMouseMove)
+    canvas.addEventListener("mousedown", onMouseDown)
+    canvas.addEventListener("mouseup", onMouseUp)
+    canvas.addEventListener("click", onClick)
+    canvas.addEventListener("mouseleave", onMouseLeave)
+    canvas.addEventListener("wheel", onWheel, { passive: false })
+    canvas.style.cursor = "grab"
+
+    const ro = new ResizeObserver(resize)
+    ro.observe(container)
+
+    ;(async () => {
+      try {
+        const res = await fetch(
+          "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json"
+        )
+        if (!res.ok) throw new Error()
+        landFeaturesRef.current = await res.json()
+        const dots: { lng: number; lat: number }[] = []
+        landFeaturesRef.current.features.forEach((f: any) => {
+          genDots(f, 14).forEach(([lng, lat]) => dots.push({ lng, lat }))
+        })
+        allDotsRef.current = dots
+        setIsLoading(false)
+      } catch {
+        setIsLoading(false)
+      }
+    })()
+
+    return () => {
+      timer.stop()
+      canvas.removeEventListener("mousemove", onMouseMove)
+      canvas.removeEventListener("mousedown", onMouseDown)
+      canvas.removeEventListener("mouseup", onMouseUp)
+      canvas.removeEventListener("click", onClick)
+      canvas.removeEventListener("mouseleave", onMouseLeave)
+      canvas.removeEventListener("wheel", onWheel)
+      ro.disconnect()
+      landFeaturesRef.current = null
+      allDotsRef.current = []
+    }
+  }, [showGallery, setSelectedIncident, setShowGallery])
 
   return (
     <AnimatePresence>
@@ -261,176 +440,238 @@ export function IncidentGlobeGallery() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.35 }}
+          transition={{ duration: 0.4 }}
           onMouseMove={handleMouseMove}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 3000,
-            overflow: "hidden",
-            background: "#06020e",
-          }}
+          style={{ position: "fixed", inset: 0, zIndex: 3000, overflow: "hidden", background: "#00000f" }}
         >
-          {/* GridScan background — full screen, red scan lines */}
+          {/* GridScan bg */}
           <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
             <GridScan
               ref={gridScanRef}
-              sensitivity={0.55}
+              sensitivity={0.95}
               lineThickness={1}
-              linesColor="#392E4E"
-              gridScale={0.1}
-              scanColor="#ff2020"
-              scanOpacity={0.40}
+              linesColor="#12122a"
+              gridScale={0.08}
+              scanColor="#1a3aff"
+              scanOpacity={0.15}
               enablePost
-              bloomIntensity={0.65}
-              chromaticAberration={0.042}
-              noiseIntensity={0.01}
-              scanDirection="backward"
+              bloomIntensity={0.4}
+              chromaticAberration={0.02}
+              noiseIntensity={0.15}
+              scanDirection="pingpong"
             />
           </div>
 
-          {/* Subtle radial vignette — darker at edges, lighter at center so dome pops */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 1,
-              background:
-                "radial-gradient(ellipse 55% 60% at center, transparent 0%, rgba(6,2,14,0.55) 100%)",
-              pointerEvents: "none",
-            }}
-          />
+          {/* Vignette */}
+          <div style={{
+            position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+            background: "radial-gradient(ellipse 75% 75% at 50% 50%, transparent 30%, rgba(0,0,15,0.88) 100%)"
+          }} />
 
-          {/* DomeGallery — smaller & centered to leave GridScan visible around it */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 2,
-            }}
-          >
-            {images.length > 0 ? (
-              <DomeGallery
-                images={images}
-                fit={0.50}
-                minRadius={600}
-                maxVerticalRotationDeg={0}
-                segments={34}
-                dragDampening={2}
-                grayscale={false}
-                overlayBlurColor="rgba(6,2,14,0)"
-                onItemClick={handleItemClick}
-                itemBadges={itemBadges}
-              />
-            ) : (
-
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "12px",
-                  color: "rgba(255,255,255,0.5)",
-                }}
-              >
-
-                <p style={{ fontSize: "14px", margin: 0 }}>No incidents to display</p>
-              </div>
-            )}
+          {/* Globe canvas */}
+          <div ref={containerRef} style={{ position: "absolute", inset: 0, zIndex: 2 }}>
+            <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
           </div>
 
-          {/* Header bar */}
-          <div
+          {/* Loading */}
+          <AnimatePresence>
+            {isLoading && (
+              <motion.div
+                initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.7 }}
+                style={{
+                  position: "absolute", inset: 0, zIndex: 8,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexDirection: "column", gap: 14, pointerEvents: "none",
+                }}
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1], opacity: [0.4, 1, 0.4] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  style={{
+                    width: 52, height: 52, borderRadius: "50%",
+                    border: "1.5px solid rgba(80,140,255,0.7)",
+                    boxShadow: "0 0 40px rgba(80,140,255,0.25), inset 0 0 20px rgba(80,140,255,0.1)",
+                  }}
+                />
+                <p style={{ color: "rgba(80,140,255,0.6)", fontSize: 11, letterSpacing: "0.18em", fontFamily: "monospace", margin: 0 }}>
+                  LOADING GLOBE DATA
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Hover tooltip */}
+          <AnimatePresence>
+            {hoveredIncident && (
+              <motion.div
+                key={hoveredIncident.incident.id}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.12 }}
+                style={{
+                  position: "absolute", zIndex: 20, pointerEvents: "none",
+                  left: Math.min(hoveredIncident.x + 18, window.innerWidth - 260),
+                  top: Math.max(10, hoveredIncident.y - 60),
+                  maxWidth: 240,
+                }}
+              >
+                <div style={{
+                  background: "rgba(3,5,18,0.95)",
+                  border: `1px solid ${CATEGORY_COLORS[hoveredIncident.incident.category]}44`,
+                  borderLeft: `3px solid ${CATEGORY_COLORS[hoveredIncident.incident.category]}`,
+                  borderRadius: 10, padding: "11px 14px",
+                  backdropFilter: "blur(20px)",
+                  boxShadow: `0 12px 40px rgba(0,0,0,0.7), 0 0 30px ${CATEGORY_COLORS[hoveredIncident.incident.category]}18`,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                    <span style={{ fontSize: 15 }}>{CATEGORY_EMOJI[hoveredIncident.incident.category]}</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
+                      color: CATEGORY_COLORS[hoveredIncident.incident.category],
+                      textTransform: "uppercase", fontFamily: "monospace",
+                    }}>
+                      {getCategoryInfo(hoveredIncident.incident.category).label}
+                    </span>
+                  </div>
+                  <p style={{
+                    margin: 0, fontSize: 12, color: "rgba(210,225,255,0.9)",
+                    lineHeight: 1.55, fontFamily: "system-ui, sans-serif",
+                  }}>
+                    {hoveredIncident.incident.description?.slice(0, 90) || "No description"}
+                    {(hoveredIncident.incident.description?.length ?? 0) > 90 && "…"}
+                  </p>
+                  <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, color: "rgba(100,130,200,0.65)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: 3 }}>
+                      <MapPin size={8} />
+                      {hoveredIncident.incident.lat.toFixed(2)}°, {hoveredIncident.incident.lng.toFixed(2)}°
+                    </span>
+                    <span style={{ fontSize: 10, color: "rgba(100,130,200,0.5)", fontFamily: "monospace", marginLeft: "auto", display: "flex", alignItems: "center", gap: 3 }}>
+                      <Clock size={8} />
+                      {timeAgo(hoveredIncident.incident.createdAt)}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 8, paddingTop: 7, borderTop: "1px solid rgba(80,100,200,0.15)" }}>
+                    <span style={{ fontSize: 10, color: "rgba(80,120,255,0.65)", fontFamily: "monospace", letterSpacing: "0.06em" }}>
+                      CLICK TO VIEW DETAILS →
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Stats panel */}
+          <AnimatePresence>
+            {statsVisible && activeIncidents.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, x: 24 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 24 }}
+                transition={{ duration: 0.5 }}
+                style={{
+                  position: "absolute", right: 20, top: "50%", transform: "translateY(-50%)",
+                  zIndex: 10, display: "flex", flexDirection: "column", gap: 5,
+                }}
+              >
+                {CATEGORIES.map((cat, ci) => {
+                  const count = categoryCounts[cat.id] || 0
+                  if (count === 0) return null
+                  return (
+                    <motion.div
+                      key={cat.id}
+                      initial={{ opacity: 0, x: 12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3, delay: ci * 0.06 }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 9,
+                        background: "rgba(3,5,18,0.8)",
+                        border: `1px solid ${cat.color}28`,
+                        borderLeft: `2px solid ${cat.color}`,
+                        borderRadius: 8, padding: "6px 12px",
+                        backdropFilter: "blur(12px)", minWidth: 140,
+                      }}
+                    >
+                      <span style={{ fontSize: 12 }}>{CATEGORY_EMOJI[cat.id]}</span>
+                      <span style={{ flex: 1, fontSize: 10, color: "rgba(180,195,255,0.65)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                        {cat.label.toUpperCase().slice(0, 13)}
+                      </span>
+                      <span style={{
+                        fontSize: 13, fontWeight: 700, color: cat.color,
+                        fontFamily: "monospace", minWidth: 20, textAlign: "right",
+                      }}>
+                        {count}
+                      </span>
+                    </motion.div>
+                  )
+                })}
+                <div style={{ marginTop: 4, padding: "4px 12px", borderTop: "1px solid rgba(80,100,200,0.12)" }}>
+                  <span style={{ fontSize: 10, color: "rgba(80,100,160,0.5)", fontFamily: "monospace", letterSpacing: "0.08em" }}>
+                    {activeIncidents.length} TOTAL INCIDENTS
+                  </span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Header */}
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
             style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              zIndex: 10,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
+              position: "absolute", top: 0, left: 0, right: 0, zIndex: 10,
+              display: "flex", alignItems: "center", justifyContent: "space-between",
               padding: "16px 20px",
-              background:
-                "linear-gradient(to bottom, rgba(4,2,12,0.85) 0%, transparent 100%)",
-              backdropFilter: "blur(0px)",
+              background: "linear-gradient(to bottom, rgba(0,0,15,0.92) 0%, transparent 100%)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <motion.div
+                animate={{ opacity: [1, 0.25, 1] }}
+                transition={{ duration: 1.4, repeat: Infinity }}
+                style={{
+                  width: 7, height: 7, borderRadius: "50%",
+                  background: "#ff3030", boxShadow: "0 0 12px #ff3030",
+                }}
+              />
               <div>
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: "15px",
-                    fontWeight: 700,
-                    color: "rgba(255,255,255,0.95)",
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  Global Incidents
+                <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "rgba(210,225,255,0.95)", letterSpacing: "0.08em", fontFamily: "monospace" }}>
+                  GLOBAL THREAT MAP
                 </p>
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: "11px",
-                    color: "rgba(255,255,255,0.45)",
-                    marginTop: "1px",
-                  }}
-                >
-                  {activeIncidents.length} active · drag to explore · click to view
+                <p style={{ margin: 0, fontSize: 10, color: "rgba(100,130,200,0.5)", marginTop: 2, fontFamily: "monospace", letterSpacing: "0.07em" }}>
+                  {activeIncidents.length} ACTIVE INCIDENTS · LIVE
                 </p>
               </div>
             </div>
-
             <Button
-              variant="outline"
-              size="icon"
+              variant="outline" size="icon"
               onClick={() => setShowGallery(false)}
               style={{
-                borderRadius: "50%",
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "rgba(255,255,255,0.08)",
-                color: "rgba(255,255,255,0.8)",
-                width: "36px",
-                height: "36px",
-                backdropFilter: "blur(8px)",
+                borderRadius: "50%", border: "1px solid rgba(80,120,255,0.2)",
+                background: "rgba(4,6,24,0.7)", color: "rgba(160,185,255,0.8)",
+                width: 36, height: 36, backdropFilter: "blur(12px)",
               }}
-              aria-label="Close gallery"
             >
-              <X size={16} />
+              <X size={15} />
             </Button>
-          </div>
+          </motion.div>
 
           {/* Bottom hint */}
-          <div
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.2, duration: 0.8 }}
             style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              zIndex: 10,
-              padding: "20px",
-              background:
-                "linear-gradient(to top, rgba(4,2,12,0.7) 0%, transparent 100%)",
-              display: "flex",
-              justifyContent: "center",
+              position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 10,
+              padding: "18px", display: "flex", justifyContent: "center",
+              background: "linear-gradient(to top, rgba(0,0,15,0.7) 0%, transparent 100%)",
             }}
           >
-            <p
-              style={{
-                margin: 0,
-                fontSize: "11px",
-                color: "rgba(255,255,255,0.3)",
-                letterSpacing: "0.04em",
-              }}
-            >
-              Country flags appear as incidents are geocoded
+            <p style={{ margin: 0, fontSize: 10, color: "rgba(60,90,160,0.5)", letterSpacing: "0.12em", fontFamily: "monospace" }}>
+              SCROLL TO ZOOM · DRAG TO ROTATE · CLICK MARKER TO INSPECT
             </p>
-          </div>
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
