@@ -1,5 +1,5 @@
 // Service Worker for ThreatAlert PWA
-const CACHE_NAME = 'threatalert-v2'
+const CACHE_NAME = 'threatalert-v3'
 const STATIC_CACHE = [
   '/',
   '/manifest.json',
@@ -104,10 +104,19 @@ self.addEventListener('push', (event) => {
 // Notification click event
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
+  if (event.action === 'dismiss') return
 
-  if (event.action === 'view' || !event.action) {
-    event.waitUntil(
-      clients.openWindow('/')
-    )
-  }
+  const url = (event.notification.data && event.notification.data.url)
+    ? event.notification.data.url
+    : '/'
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus an existing tab if one is already open on the target URL
+      for (const client of windowClients) {
+        if (client.url === url && 'focus' in client) return client.focus()
+      }
+      return clients.openWindow(url)
+    })
+  )
 })

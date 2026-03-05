@@ -80,14 +80,14 @@ const messaging = firebase.messaging();
 // Handle background push messages (app not in foreground)
 messaging.onBackgroundMessage((payload) => {
   const { title, body } = payload.notification || {};
-  const { incidentId, category } = payload.data || {};
+  const { incidentId, category, url } = payload.data || {};
 
   self.registration.showNotification(title || 'ThreatAlert', {
     body: body || 'New incident reported near you.',
     icon: '/apple-touch-icon.png',
     badge: '/favicon-32x32.png',
     vibrate: [200, 100, 200],
-    data: { incidentId, category, url: '/' },
+    data: { incidentId, category, url: url || '/' },
     actions: [
       { action: 'view', title: 'View on map' },
       { action: 'dismiss', title: 'Dismiss' },
@@ -95,16 +95,22 @@ messaging.onBackgroundMessage((payload) => {
   });
 });
 
-// Notification click: open / focus the app
+// Notification click: open the specific incident deep-link
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   if (event.action === 'dismiss') return;
+
+  const url = (event.notification.data && event.notification.data.url)
+    ? event.notification.data.url
+    : '/';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus an existing tab if it already has the target URL open
       for (const client of windowClients) {
-        if (client.url === '/' && 'focus' in client) return client.focus();
+        if (client.url === url && 'focus' in client) return client.focus();
       }
-      return clients.openWindow('/');
+      return clients.openWindow(url);
     })
   );
 });
