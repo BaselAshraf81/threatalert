@@ -58,7 +58,7 @@
   --card-foreground: oklch(0.95 0 0);
   --popover: oklch(0.15 0.005 260);
   --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.65 0.2 25);
+  --primary: oklch(37.667% 0.15458 29.223);
   --primary-foreground: oklch(0.98 0 0);
   --secondary: oklch(0.22 0.005 260);
   --secondary-foreground: oklch(0.88 0 0);
@@ -142,6 +142,36 @@
   --color-threat-unrest: var(--threat-unrest);
   --color-threat-custom: var(--threat-custom);
   --color-threat-active: var(--threat-active);
+  --animate-star-btn: star-btn calc(var(--duration)*1s) linear infinite;
+  @keyframes star-btn {
+  0% {
+    offset-distance: 0%;
+    }
+  100% {
+    offset-distance: 100%;
+    }
+  }
+  --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
+  --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  @keyframes spin-around {
+  0% {
+    transform: translateZ(0) rotate(0);
+    }
+  15%, 35% {
+    transform: translateZ(0) rotate(90deg);
+    }
+  65%, 85% {
+    transform: translateZ(0) rotate(270deg);
+    }
+  100% {
+    transform: translateZ(0) rotate(360deg);
+    }
+  }
+  @keyframes shimmer-slide {
+  to {
+    transform: translate(calc(100cqw - 100%), 0);
+    }
+  }
 }
 
 @layer base {

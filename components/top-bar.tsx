@@ -14,20 +14,22 @@ export function TopBar() {
   const { theme, setTheme } = useTheme()
 
   return (
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-1000 flex items-center px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-5 sm:py-3 md:px-8">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-1000 grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-5 sm:py-3 md:px-8">
       {/* Left: notification bell */}
-      <Button
-        variant="outline"
-        size="icon"
-        onClick={() => setShowNotificationSheet(true)}
-        className="pointer-events-auto h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10"
-        aria-label="Notification settings"
-      >
-        <Bell className="h-4 w-4" />
-      </Button>
+      <div className="flex items-center">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => setShowNotificationSheet(true)}
+          className="pointer-events-auto h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10"
+          aria-label="Notification settings"
+        >
+          <Bell className="h-4 w-4" />
+        </Button>
+      </div>
 
-      {/* Center: logo */}
-      <div className="pointer-events-auto absolute left-1/2 -translate-x-1/2 rounded-full">
+      {/* Center: logo — in-flow, never overlapped */}
+      <div className="pointer-events-auto flex justify-center rounded-full">
         <StarBorder as="div" color="#6b9fff" speed="8s" thickness={1} className="rounded-full">
           <div className="flex items-center gap-1.5 rounded-full bg-card/70 px-3 py-1.5 shadow-lg backdrop-blur-2xl dark:bg-card/60 sm:gap-2 sm:px-4 sm:py-2">
             <Shield className="h-3.5 w-3.5 text-primary sm:h-4 sm:w-4" />
@@ -45,7 +47,7 @@ export function TopBar() {
       </div>
 
       {/* Right: Install PWA + GitHub stars + globe gallery + theme toggle */}
-      <div className="pointer-events-auto ml-auto flex items-center gap-2 rounded-full">
+      <div className="pointer-events-auto flex items-center justify-end gap-2">
         <InstallPWAButton />
         
         <GitHubStarsButton

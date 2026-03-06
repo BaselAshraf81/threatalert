@@ -64,7 +64,7 @@ export function ReportFAB() {
         as="div"
         color={pinPlacementMode ? "#888888" : "#e54d42"}
         speed="5s"
-        thickness={1.5}
+        thickness={2.0}
         className="rounded-full"
         style={{ display: "block" }}
       >
