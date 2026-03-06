@@ -9,12 +9,63 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: 'ThreatAlert — Real-Time Community Safety Map',
-  description: 'Free, anonymous, community-driven map for real-time local incident awareness. No accounts, no ads, no data sold.',
+  description:
+    'Free, anonymous, community-driven map for real-time local incident awareness. Report crime, fire, disasters, civil unrest, and infrastructure issues. No accounts, no ads, no data sold.',
+  keywords: [
+    'incident map',
+    'community safety app',
+    'real-time crime map',
+    'anonymous incident reporting',
+    'disaster alerts',
+    'civil unrest tracker',
+    'local safety map',
+    'fire alerts near me',
+    'community watch app',
+    'open source safety PWA',
+    'live incident map',
+    'neighborhood alerts',
+  ],
+  metadataBase: new URL('https://threatalert.live'),
+  alternates: {
+    canonical: 'https://threatalert.live',
+  },
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'ThreatAlert',
+  },
+  openGraph: {
+    title: 'ThreatAlert — Real-Time Community Safety Map',
+    description:
+      'Anonymous community-driven incident reporting. Pin crime, fire, disasters, and unrest on a live shared map. No sign-up. No tracking. Just signal.',
+    url: 'https://threatalert.live',
+    siteName: 'ThreatAlert',
+    images: [
+      {
+        url: '/og-image.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'ThreatAlert — live global incident map',
+      },
+    ],
+    locale: 'en_US',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'ThreatAlert — Real-Time Community Safety Map',
+    description:
+      'Anonymous incident reporting on a live shared map. No sign-up. No tracking. Community-verified.',
+    images: ['/og-image.jpg'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+    },
   },
   icons: {
     icon: [
