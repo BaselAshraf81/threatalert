@@ -35,6 +35,9 @@ interface AppState {
   /** Globe gallery visibility */
   showGallery: boolean
   setShowGallery: (v: boolean) => void
+  /** True while the globe is fetching/processing land data for the first time */
+  isGlobeLoading: boolean
+  setIsGlobeLoading: (v: boolean) => void
 }
 
 const AppContext = createContext<AppState | null>(null)
@@ -51,6 +54,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [votedIncidents, setVotedIncidents] = useState<Set<string>>(new Set())
   const [pendingShareTarget, setPendingShareTarget] = useState<{ id: string; lat: number; lng: number } | null>(null)
   const [showGallery, setShowGallery] = useState(false)
+  const [isGlobeLoading, setIsGlobeLoading] = useState(false)
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("pending")
@@ -150,6 +154,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPendingShareTarget,
         showGallery,
         setShowGallery,
+        isGlobeLoading,
+        setIsGlobeLoading,
       }}
     >
       {children}

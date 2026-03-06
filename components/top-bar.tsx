@@ -2,7 +2,7 @@
 
 import { useAppState } from "@/hooks/use-app-state"
 import { useTheme } from "next-themes"
-import { Bell, Shield, Sun, Moon, Globe } from "lucide-react"
+import { Bell, Shield, Sun, Moon, Globe, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import StarBorder from "@/components/StarBorder"
@@ -10,7 +10,7 @@ import { GitHubStarsButton } from "@/components/github-stars-button"
 import { InstallPWAButton } from "@/components/install-pwa-button"
 
 export function TopBar() {
-  const { setShowNotificationSheet, setShowGallery } = useAppState()
+  const { setShowNotificationSheet, setShowGallery, isGlobeLoading, showGallery } = useAppState()
   const { theme, setTheme } = useTheme()
 
   return (
@@ -60,10 +60,15 @@ export function TopBar() {
           variant="outline"
           size="icon"
           onClick={() => setShowGallery(true)}
-          className="h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10"
+          disabled={isGlobeLoading && !showGallery}
+          className="relative h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10"
           aria-label="Globe incident gallery"
         >
-          <Globe className="h-4 w-4" />
+          {isGlobeLoading && showGallery ? (
+            <Loader2 className="h-4 w-4 animate-spin opacity-70" />
+          ) : (
+            <Globe className="h-4 w-4" />
+          )}
         </Button>
 
         <Button

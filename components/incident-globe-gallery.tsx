@@ -47,7 +47,7 @@ const HIT_RADIUS_MOUSE = 18
 const HIT_RADIUS_TOUCH = 36
 
 export function IncidentGlobeGallery() {
-  const { showGallery, setShowGallery, setSelectedIncident } = useAppState()
+  const { showGallery, setShowGallery, setSelectedIncident, setIsGlobeLoading } = useAppState()
   const { incidents } = useIncidents()
   const isMobile = useIsMobile()
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -70,6 +70,9 @@ export function IncidentGlobeGallery() {
   const [hoveredIncident, setHoveredIncident] = useState<{ incident: Incident; x: number; y: number } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [statsVisible, setStatsVisible] = useState(false)
+
+  // Keep global loading state in sync so the globe button in the top-bar can show a spinner
+  useEffect(() => { setIsGlobeLoading(isLoading) }, [isLoading, setIsGlobeLoading])
 
   const activeIncidents = useMemo(
     () => [...incidents].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200),
@@ -608,25 +611,75 @@ export function IncidentGlobeGallery() {
       <AnimatePresence>
         {isLoading && showGallery && (
           <motion.div
-            initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.7 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
             style={{
               position: "absolute", inset: 0, zIndex: 8,
               display: "flex", alignItems: "center", justifyContent: "center",
-              flexDirection: "column", gap: 14, pointerEvents: "none",
+              flexDirection: "column", gap: 28, pointerEvents: "none",
+              background: "rgba(0,0,12,0.6)", backdropFilter: "blur(2px)",
             }}
           >
-            <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.4, 1, 0.4] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              style={{
-                width: 52, height: 52, borderRadius: "50%",
-                border: "1.5px solid rgba(80,140,255,0.7)",
-                boxShadow: "0 0 40px rgba(80,140,255,0.25), inset 0 0 20px rgba(80,140,255,0.1)",
-              }}
-            />
-            <p style={{ color: "rgba(80,140,255,0.6)", fontSize: 11, letterSpacing: "0.18em", fontFamily: "monospace", margin: 0 }}>
-              LOADING GLOBE DATA
-            </p>
+            {/* Animated globe rings */}
+            <div style={{ position: "relative", width: 88, height: 88 }}>
+              {/* Outer ring */}
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                style={{
+                  position: "absolute", inset: 0, borderRadius: "50%",
+                  border: "1.5px solid transparent",
+                  borderTopColor: "rgba(80,140,255,0.9)",
+                  borderRightColor: "rgba(80,140,255,0.3)",
+                }}
+              />
+              {/* Middle ring */}
+              <motion.div
+                animate={{ rotate: -360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                style={{
+                  position: "absolute", inset: 10, borderRadius: "50%",
+                  border: "1.5px solid transparent",
+                  borderTopColor: "rgba(120,180,255,0.7)",
+                  borderLeftColor: "rgba(120,180,255,0.2)",
+                }}
+              />
+              {/* Core dot */}
+              <motion.div
+                animate={{ scale: [0.8, 1.1, 0.8], opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                style={{
+                  position: "absolute", inset: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <div style={{
+                  width: 12, height: 12, borderRadius: "50%",
+                  background: "rgba(80,140,255,0.9)",
+                  boxShadow: "0 0 20px rgba(80,140,255,0.6)",
+                }} />
+              </motion.div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <p style={{
+                color: "rgba(200,220,255,0.95)", fontSize: 13, fontWeight: 600,
+                letterSpacing: "0.2em", fontFamily: "monospace", margin: 0,
+              }}>
+                LOADING GLOBE
+              </p>
+              {/* Animated dots */}
+              <div style={{ display: "flex", gap: 5 }}>
+                {[0, 1, 2].map(i => (
+                  <motion.div
+                    key={i}
+                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                    style={{ width: 4, height: 4, borderRadius: "50%", background: "rgba(80,140,255,0.8)" }}
+                  />
+                ))}
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
