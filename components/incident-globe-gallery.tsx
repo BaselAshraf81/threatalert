@@ -141,44 +141,6 @@ export function IncidentGlobeGallery() {
       }
     }
 
-    function ptInPoly(pt: [number, number], ring: number[][]): boolean {
-      const [x, y] = pt; let inside = false
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const [xi, yi] = ring[i]; const [xj, yj] = ring[j]
-        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
-      }
-      return inside
-    }
-
-    function ptInFeature(pt: [number, number], feat: any): boolean {
-      const g = feat.geometry
-      if (g.type === "Polygon") {
-        if (!ptInPoly(pt, g.coordinates[0])) return false
-        for (let i = 1; i < g.coordinates.length; i++) if (ptInPoly(pt, g.coordinates[i])) return false
-        return true
-      }
-      if (g.type === "MultiPolygon") {
-        for (const poly of g.coordinates) {
-          if (ptInPoly(pt, poly[0])) {
-            let inHole = false
-            for (let i = 1; i < poly.length; i++) if (ptInPoly(pt, poly[i])) { inHole = true; break }
-            if (!inHole) return true
-          }
-        }
-      }
-      return false
-    }
-
-    function genDots(feat: any, spacing = 14): [number, number][] {
-      const dots: [number, number][] = []
-      const [[minLng, minLat], [maxLng, maxLat]] = d3.geoBounds(feat)
-      const step = spacing * 0.08
-      for (let lng = minLng; lng <= maxLng; lng += step)
-        for (let lat = minLat; lat <= maxLat; lat += step)
-          if (ptInFeature([lng, lat], feat)) dots.push([lng, lat])
-      return dots
-    }
-
     function render(t: number) {
       // Skip all GPU/canvas work while the overlay is invisible — zero cost
       if (!showGalleryRef.current) return
@@ -189,7 +151,7 @@ export function IncidentGlobeGallery() {
       ctx.clearRect(0, 0, W, H)
       const sc = proj.scale()
 
-      // Ocean
+      // Ocean — always rendered, even while land data is still loading
       ctx.beginPath()
       ctx.arc(W / 2, H / 2, sc, 0, TWO_PI)
       ctx.fillStyle = "#010d1e"
@@ -198,38 +160,39 @@ export function IncidentGlobeGallery() {
       ctx.lineWidth = 1.5
       ctx.stroke()
 
-      if (!landFeaturesRef.current) return
-
-      // Graticule
+      // Graticule — always rendered
       ctx.beginPath()
       pathGen(gratGeom)
       ctx.strokeStyle = "rgba(30,60,140,0.2)"
       ctx.lineWidth = 0.5
       ctx.stroke()
 
-      // Land fill
-      ctx.beginPath()
-      landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
-      ctx.fillStyle = "rgba(20,40,90,0.2)"
-      ctx.fill()
+      // Land + dots + markers — only once land data is ready
+      if (landFeaturesRef.current) {
+        // Land fill
+        ctx.beginPath()
+        landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
+        ctx.fillStyle = "rgba(20,40,90,0.2)"
+        ctx.fill()
 
-      // Land outline
-      ctx.beginPath()
-      landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
-      ctx.strokeStyle = "rgba(60,100,200,0.3)"
-      ctx.lineWidth = 0.6
-      ctx.stroke()
+        // Land outline
+        ctx.beginPath()
+        landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
+        ctx.strokeStyle = "rgba(60,100,200,0.3)"
+        ctx.lineWidth = 0.6
+        ctx.stroke()
 
-      // Land dots — ONE beginPath/fill for ALL dots
-      ctx.beginPath()
-      for (const dot of allDotsRef.current) {
-        const p = proj([dot.lng, dot.lat])
-        if (!p || p[0] < 0 || p[0] > W || p[1] < 0 || p[1] > H) continue
-        ctx.moveTo(p[0] + 0.9, p[1])
-        ctx.arc(p[0], p[1], 0.9, 0, TWO_PI)
+        // Land dots — ONE beginPath/fill for ALL dots
+        ctx.beginPath()
+        for (const dot of allDotsRef.current) {
+          const p = proj([dot.lng, dot.lat])
+          if (!p || p[0] < 0 || p[0] > W || p[1] < 0 || p[1] > H) continue
+          ctx.moveTo(p[0] + 0.9, p[1])
+          ctx.arc(p[0], p[1], 0.9, 0, TWO_PI)
+        }
+        ctx.fillStyle = "rgba(80,120,230,0.5)"
+        ctx.fill()
       }
-      ctx.fillStyle = "rgba(80,120,230,0.5)"
-      ctx.fill()
 
       // Incident markers
       const incs = incidentsRef.current
@@ -520,6 +483,9 @@ export function IncidentGlobeGallery() {
     const ro = new ResizeObserver(resize)
     ro.observe(container)
 
+    // ── Data loading — Web Worker so genDots never blocks the main thread ────
+    // All point-in-polygon math runs in a separate thread. The main thread
+    // receives the finished dots array via postMessage and is never frozen.
     ;(async () => {
       try {
         if (_cachedLandFeatures) {
@@ -528,20 +494,111 @@ export function IncidentGlobeGallery() {
           setIsLoading(false)
           return
         }
+
         const res = await fetch(
           "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json"
         )
         if (!res.ok) throw new Error()
         const data = await res.json()
-        const dots: { lng: number; lat: number }[] = []
-        data.features.forEach((f: any) => {
-          genDots(f, 14).forEach(([lng, lat]) => dots.push({ lng, lat }))
-        })
-        _cachedLandFeatures = data
-        _cachedDots = dots
+
+        // Set land features immediately so the globe outline renders
+        // while dots are still being computed in the worker
         landFeaturesRef.current = data
-        allDotsRef.current = dots
-        setIsLoading(false)
+        _cachedLandFeatures = data
+
+        // Inline worker — all the heavy ptInPoly/genDots logic runs off-thread
+        const workerSrc = `
+          function ptInPoly(pt, ring) {
+            var x = pt[0], y = pt[1], inside = false;
+            for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+              var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+              if (yi > y !== yj > y && x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+                inside = !inside;
+            }
+            return inside;
+          }
+
+          function ptInFeature(pt, feat) {
+            var g = feat.geometry;
+            if (g.type === 'Polygon') {
+              if (!ptInPoly(pt, g.coordinates[0])) return false;
+              for (var i = 1; i < g.coordinates.length; i++)
+                if (ptInPoly(pt, g.coordinates[i])) return false;
+              return true;
+            }
+            if (g.type === 'MultiPolygon') {
+              for (var pi = 0; pi < g.coordinates.length; pi++) {
+                var poly = g.coordinates[pi];
+                if (ptInPoly(pt, poly[0])) {
+                  var inHole = false;
+                  for (var hi = 1; hi < poly.length; hi++)
+                    if (ptInPoly(pt, poly[hi])) { inHole = true; break; }
+                  if (!inHole) return true;
+                }
+              }
+            }
+            return false;
+          }
+
+          function geoBounds(feat) {
+            var minLng=180, minLat=90, maxLng=-180, maxLat=-90;
+            function scanCoords(arr) {
+              if (!arr || !arr.length) return;
+              if (typeof arr[0] === 'number') {
+                if (arr[0] < minLng) minLng = arr[0];
+                if (arr[0] > maxLng) maxLng = arr[0];
+                if (arr[1] < minLat) minLat = arr[1];
+                if (arr[1] > maxLat) maxLat = arr[1];
+              } else { arr.forEach(scanCoords); }
+            }
+            scanCoords(feat.geometry.coordinates);
+            return [[minLng, minLat], [maxLng, maxLat]];
+          }
+
+          function genDots(feat, spacing) {
+            var dots = [];
+            var bounds = geoBounds(feat);
+            var step = spacing * 0.08;
+            for (var lng = bounds[0][0]; lng <= bounds[1][0]; lng += step)
+              for (var lat = bounds[0][1]; lat <= bounds[1][1]; lat += step)
+                if (ptInFeature([lng, lat], feat)) dots.push([lng, lat]);
+            return dots;
+          }
+
+          self.onmessage = function(e) {
+            var features = e.data;
+            var result = [];
+            features.forEach(function(f) {
+              genDots(f, 14).forEach(function(d) {
+                result.push({ lng: d[0], lat: d[1] });
+              });
+            });
+            self.postMessage(result);
+          };
+        `
+
+        const blob = new Blob([workerSrc], { type: "application/javascript" })
+        const workerUrl = URL.createObjectURL(blob)
+        const worker = new Worker(workerUrl)
+
+        worker.onmessage = (e: MessageEvent) => {
+          const dots: { lng: number; lat: number }[] = e.data
+          _cachedDots = dots
+          allDotsRef.current = dots
+          worker.terminate()
+          URL.revokeObjectURL(workerUrl)
+          setIsLoading(false)
+        }
+
+        worker.onerror = () => {
+          worker.terminate()
+          URL.revokeObjectURL(workerUrl)
+          setIsLoading(false)
+        }
+
+        // Send features to worker — structured clone is automatic
+        worker.postMessage(data.features)
+
       } catch {
         setIsLoading(false)
       }
