@@ -1,0 +1,19 @@
+﻿# ThreatAlert
+
+> Anonymous, community-driven real-time incident awareness map
+
+ThreatAlert is a free PWA where anyone can report local incidents — crime, fire, disasters, civil unrest — on a shared live map. No accounts. No tracking. Community votes verify reports automatically.
+
+## Live site
+https://threatalert.live
+
+## Source code
+https://github.com/BaselAshraf81/threatalert
+
+## Features
+- Anonymous incident reporting with up to 3 photos
+- Community voting (confirm / resolve / flag)
+- Push notifications with configurable radius
+- 3D globe view of all live incidents
+- Installable PWA on iOS and Android
+- Auto-expiring incidents by category
