@@ -102,6 +102,28 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/apple-icon.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{__html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebApplication",
+            "name": "ThreatAlert",
+            "url": "https://threatalert.live",
+            "description": "Anonymous community-driven real-time incident awareness map. Report crime, fire, disasters, and civil unrest. No sign-up, no tracking.",
+            "applicationCategory": "SafetyApplication",
+            "operatingSystem": "Web, iOS, Android",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "featureList": [
+              "Anonymous incident reporting",
+              "Community voting and verification",
+              "Real-time live map",
+              "Push notifications",
+              "3D globe view",
+              "Photo attachments",
+              "Installable PWA"
+            ]
+          })}}
+        />
       </head>
       <body className="font-sans antialiased overflow-hidden">
         <ThemeProvider
