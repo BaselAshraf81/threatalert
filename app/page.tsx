@@ -36,6 +36,7 @@ function AppContent() {
   return (
     <ClickSpark sparkColor={sparkColor} sparkSize={10} sparkRadius={18} sparkCount={8} duration={400}>
       <main className="relative h-dvh w-full overflow-hidden bg-background">
+          <h1 className="sr-only">ThreatAlert — Anonymous Real-Time Community Incident Map</h1>
         <TopBar />
         <MapView />
         <IncidentTicker />
