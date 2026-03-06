@@ -14,7 +14,7 @@ const configuration = {
   developerURL: null,
   dir: 'auto',
   lang: 'en-US',
-  background: '#0e1220',
+  background: 'transparent',
   theme_color: '#0e1220',
   appleStatusBarStyle: 'black-translucent',
   display: 'standalone',
@@ -29,7 +29,7 @@ const configuration = {
   manifestMaskable: true,
   icons: {
     android: false,
-    appleIcon: { offset: 10, background: true },
+    appleIcon: { offset: 10, background: false },
     appleStartup: false,
     favicons: true,
     windows: false,
