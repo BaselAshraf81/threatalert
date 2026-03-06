@@ -64,8 +64,9 @@ export function ReportFAB() {
         as="div"
         color={pinPlacementMode ? "#888888" : "#e54d42"}
         speed="5s"
-        thickness={1}
+        thickness={1.5}
         className="rounded-full"
+        style={{ display: "block" }}
       >
         <motion.button
           whileHover={{ scale: 1.03 }}
