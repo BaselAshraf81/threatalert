@@ -10,7 +10,7 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: 'ThreatAlert — Real-Time Community Safety Map',
   description:
-    'Free, anonymous, community-driven map for real-time local incident awareness. Report crime, fire, disasters, civil unrest, and infrastructure issues. No accounts, no ads, no data sold.',
+    'Anonymous community map for real-time incident awareness. Report crime, fire, disasters & civil unrest. No sign-up, no tracking, no ads.',
   keywords: [
     'incident map',
     'community safety app',
