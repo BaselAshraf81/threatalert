@@ -10,6 +10,7 @@ import type { GridScanHandle } from "./GridScan"
 import StarBorder from "./StarBorder"
 import { useIncidents } from "@/hooks/use-incidents"
 import { useAppState } from "@/hooks/use-app-state"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { getCategoryInfo, CATEGORIES } from "@/lib/types"
 import type { Incident } from "@/lib/types"
 
@@ -41,11 +42,14 @@ function timeAgo(ts: number): string {
   return `${Math.floor(s / 86400)}d ago`
 }
 
-const HIT_RADIUS = 18
+// Larger hit radius on touch — fingers are less precise than cursors
+const HIT_RADIUS_MOUSE = 18
+const HIT_RADIUS_TOUCH = 36
 
 export function IncidentGlobeGallery() {
   const { showGallery, setShowGallery, setSelectedIncident } = useAppState()
   const { incidents } = useIncidents()
+  const isMobile = useIsMobile()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const gridScanRef = useRef<GridScanHandle>(null)
@@ -200,13 +204,13 @@ export function IncidentGlobeGallery() {
       ctx.lineWidth = 0.5
       ctx.stroke()
 
-      // Land fill — single batched path
+      // Land fill
       ctx.beginPath()
       landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
       ctx.fillStyle = "rgba(20,40,90,0.2)"
       ctx.fill()
 
-      // Land outline — single batched path
+      // Land outline
       ctx.beginPath()
       landFeaturesRef.current.features.forEach((f: any) => pathGen(f))
       ctx.strokeStyle = "rgba(60,100,200,0.3)"
@@ -300,7 +304,7 @@ export function IncidentGlobeGallery() {
       .clipAngle(90)
     pathGen = d3.geoPath().projection(projectionRef.current).context(ctx)
 
-    // Timer stays alive forever; skips render body when overlay is hidden
+    // Timer stays alive forever; skips render body when hidden
     const timer = d3.timer((elapsed) => {
       if (!showGalleryRef.current) return
       if (autoRotateRef.current) {
@@ -310,20 +314,17 @@ export function IncidentGlobeGallery() {
       render(elapsed)
     })
 
-    // Drag + hover interaction
-    let dragStart: { mx: number; my: number; rot: [number, number] } | null = null
-    let didDrag = false
-    let dragEndAt = 0
+    // ── Shared helpers ────────────────────────────────────────────────────
 
-    function getCanvasXY(e: MouseEvent) {
+    function getXY(clientX: number, clientY: number) {
       const r = canvas.getBoundingClientRect()
-      return { x: e.clientX - r.left, y: e.clientY - r.top }
+      return { x: clientX - r.left, y: clientY - r.top }
     }
 
-    function findNearest(cx: number, cy: number): number | null {
+    function findNearest(cx: number, cy: number, hitRadius: number): number | null {
       const proj = projectionRef.current!
       const incs = incidentsRef.current
-      let best: number | null = null, bestD = HIT_RADIUS
+      let best: number | null = null, bestD = hitRadius
       for (let i = 0; i < incs.length; i++) {
         const p = proj([incs[i].lng, incs[i].lat])
         if (!p) continue
@@ -333,8 +334,14 @@ export function IncidentGlobeGallery() {
       return best
     }
 
+    // ── Mouse interaction ─────────────────────────────────────────────────
+
+    let dragStart: { mx: number; my: number; rot: [number, number] } | null = null
+    let didDrag = false
+    let dragEndAt = 0
+
     function onMouseMove(e: MouseEvent) {
-      const { x, y } = getCanvasXY(e)
+      const { x, y } = getXY(e.clientX, e.clientY)
       if (dragStart) {
         didDrag = true
         autoRotateRef.current = false
@@ -346,7 +353,7 @@ export function IncidentGlobeGallery() {
         setHoveredIncident(null)
         return
       }
-      const idx = findNearest(x, y)
+      const idx = findNearest(x, y, HIT_RADIUS_MOUSE)
       hoveredIdxRef.current = idx
       canvas.style.cursor = idx !== null ? "pointer" : "grab"
       if (idx !== null) {
@@ -364,7 +371,7 @@ export function IncidentGlobeGallery() {
     }
 
     function onMouseDown(e: MouseEvent) {
-      const { x, y } = getCanvasXY(e)
+      const { x, y } = getXY(e.clientX, e.clientY)
       dragStart = { mx: x, my: y, rot: [rotationRef.current[0], rotationRef.current[1]] }
       didDrag = false
       canvas.style.cursor = "grabbing"
@@ -378,8 +385,8 @@ export function IncidentGlobeGallery() {
         dragEndAt = performance.now()
         setTimeout(() => { autoRotateRef.current = true }, 2500)
       } else {
-        const { x, y } = getCanvasXY(e)
-        const idx = findNearest(x, y)
+        const { x, y } = getXY(e.clientX, e.clientY)
+        const idx = findNearest(x, y, HIT_RADIUS_MOUSE)
         if (idx !== null) {
           setSelectedIncident(incidentsRef.current[idx])
           setShowGallery(false)
@@ -409,12 +416,102 @@ export function IncidentGlobeGallery() {
       proj.scale(newS)
     }
 
+    // ── Touch interaction ─────────────────────────────────────────────────
+    // Single-finger drag → rotate globe
+    // Tap (< 8px movement) → select nearest incident
+
+    let touchStart: { x: number; y: number; rot: [number, number] } | null = null
+    let touchMoved = false
+    let touchEndAt = 0
+    let lastPinchDist = 0
+
+    function onTouchStart(e: TouchEvent) {
+      // Two-finger pinch — store initial distance for zoom
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        lastPinchDist = Math.hypot(dx, dy)
+        touchStart = null // cancel single-touch drag
+        return
+      }
+
+      const t = e.touches[0]
+      const { x, y } = getXY(t.clientX, t.clientY)
+      touchStart = { x, y, rot: [rotationRef.current[0], rotationRef.current[1]] }
+      touchMoved = false
+      autoRotateRef.current = false
+      e.preventDefault()
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      e.preventDefault()
+
+      // Two-finger pinch zoom
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX
+        const dy = e.touches[0].clientY - e.touches[1].clientY
+        const dist = Math.hypot(dx, dy)
+        if (lastPinchDist > 0) {
+          const factor = dist / lastPinchDist
+          const proj = projectionRef.current!
+          const newS = Math.max(baseRadius * 0.5, Math.min(baseRadius * 2.5, proj.scale() * factor))
+          proj.scale(newS)
+        }
+        lastPinchDist = dist
+        return
+      }
+
+      if (!touchStart) return
+      const t = e.touches[0]
+      const { x, y } = getXY(t.clientX, t.clientY)
+      const dx = x - touchStart.x
+      const dy = y - touchStart.y
+
+      // Only commit to drag once finger moves more than 6px
+      if (!touchMoved && Math.hypot(dx, dy) < 6) return
+      touchMoved = true
+
+      rotationRef.current[0] = touchStart.rot[0] + dx * 0.4
+      rotationRef.current[1] = Math.max(-85, Math.min(85, touchStart.rot[1] - dy * 0.4))
+      projectionRef.current!.rotate(rotationRef.current)
+      hoveredIdxRef.current = null
+      setHoveredIncident(null)
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      if (!touchStart) return
+
+      if (!touchMoved) {
+        // It's a tap — find nearest incident with the larger touch hit radius
+        const { x, y } = touchStart
+        const idx = findNearest(x, y, HIT_RADIUS_TOUCH)
+        if (idx !== null) {
+          setSelectedIncident(incidentsRef.current[idx])
+          setShowGallery(false)
+        }
+      } else {
+        // Drag ended — resume auto-rotate after a pause
+        touchEndAt = performance.now()
+        setTimeout(() => { autoRotateRef.current = true }, 2500)
+      }
+
+      touchStart = null
+      touchMoved = false
+      lastPinchDist = 0
+    }
+
     canvas.addEventListener("mousemove", onMouseMove)
     canvas.addEventListener("mousedown", onMouseDown)
     canvas.addEventListener("mouseup", onMouseUp)
     canvas.addEventListener("click", onClick)
     canvas.addEventListener("mouseleave", onMouseLeave)
     canvas.addEventListener("wheel", onWheel, { passive: false })
+
+    // Touch events — passive: false so we can preventDefault (stops page scroll while rotating)
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false })
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false })
+    canvas.addEventListener("touchend", onTouchEnd)
+
     canvas.style.cursor = "grab"
 
     const ro = new ResizeObserver(resize)
@@ -455,15 +552,19 @@ export function IncidentGlobeGallery() {
       canvas.removeEventListener("click", onClick)
       canvas.removeEventListener("mouseleave", onMouseLeave)
       canvas.removeEventListener("wheel", onWheel)
+      canvas.removeEventListener("touchstart", onTouchStart)
+      canvas.removeEventListener("touchmove", onTouchMove)
+      canvas.removeEventListener("touchend", onTouchEnd)
       ro.disconnect()
     }
   }, [setSelectedIncident, setShowGallery])
-  // ─────────────────────────────────────────────────────────────────────────
+
+  // ─── Stats panel — built once, used in both layouts ───────────────────────
+  const statItems = CATEGORIES
+    .map((cat, ci) => ({ cat, ci, count: categoryCounts[cat.id] || 0 }))
+    .filter(({ count }) => count > 0)
 
   return (
-    // ── Always in the DOM — no unmount/remount on toggle ────────────────────
-    // opacity + pointerEvents swap instead of conditional render.
-    // GridScan keeps its WebGL context; canvas keeps D3 timer — instant reopen.
     <div
       onMouseMove={handleMouseMove}
       style={{
@@ -474,7 +575,7 @@ export function IncidentGlobeGallery() {
         transition: "opacity 0.4s ease",
       }}
     >
-      {/* GridScan bg — stays alive, never re-initialises */}
+      {/* GridScan bg */}
       <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
         <GridScan
           ref={gridScanRef}
@@ -498,9 +599,9 @@ export function IncidentGlobeGallery() {
         background: "radial-gradient(ellipse 75% 75% at 50% 50%, transparent 30%, rgba(0,0,15,0.88) 100%)"
       }} />
 
-      {/* Globe canvas — always mounted */}
+      {/* Globe canvas */}
       <div ref={containerRef} style={{ position: "absolute", inset: 0, zIndex: 2 }}>
-        <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+        <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block", touchAction: "none" }} />
       </div>
 
       {/* Loading */}
@@ -530,15 +631,9 @@ export function IncidentGlobeGallery() {
         )}
       </AnimatePresence>
 
-      {/* ── Hover tooltip ───────────────────────────────────────────────────
-          FIX: background/backdropFilter live on the INNER div, not on
-          StarBorder itself. This matches the top-bar "ThreatAlert Beta"
-          pattern: the opaque inner surface covers .inner-content so the
-          gradient orbs only peek through the 1.5px padding edge — they
-          never bleed through the transparent inner-content layer.
-      ─────────────────────────────────────────────────────────────────── */}
+      {/* Hover tooltip — desktop only (touch uses tap-to-open directly) */}
       <AnimatePresence>
-        {hoveredIncident && showGallery && (
+        {hoveredIncident && showGallery && !isMobile && (
           <motion.div
             key={hoveredIncident.incident.id}
             initial={{ opacity: 0, scale: 0.9 }}
@@ -560,11 +655,9 @@ export function IncidentGlobeGallery() {
               style={{
                 borderRadius: 10,
                 display: "block",
-                // Outer shadow only — no fill on the container
                 boxShadow: `0 12px 40px rgba(0,0,0,0.7), 0 0 30px ${CATEGORY_COLORS[hoveredIncident.incident.category]}30`,
               }}
             >
-              {/* Opaque background on the inner div — covers .inner-content fully */}
               <div style={{
                 borderRadius: 9,
                 padding: "11px 14px",
@@ -609,9 +702,9 @@ export function IncidentGlobeGallery() {
         )}
       </AnimatePresence>
 
-      {/* Stats panel — same StarBorder fix applied */}
+      {/* ── Stats panel — DESKTOP: right side column ──────────────────────── */}
       <AnimatePresence>
-        {statsVisible && activeIncidents.length > 0 && showGallery && (
+        {statsVisible && activeIncidents.length > 0 && showGallery && !isMobile && (
           <motion.div
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
@@ -620,51 +713,110 @@ export function IncidentGlobeGallery() {
             style={{
               position: "absolute", right: 20, top: "50%", transform: "translateY(-50%)",
               zIndex: 10, display: "flex", flexDirection: "column", gap: 5,
+              // Keep it from running too tall and overlapping the header/footer
+              maxHeight: "70vh", overflowY: "auto",
             }}
           >
-            {CATEGORIES.map((cat, ci) => {
-              const count = categoryCounts[cat.id] || 0
-              if (count === 0) return null
-              return (
-                <motion.div
-                  key={cat.id}
-                  initial={{ opacity: 0, x: 12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3, delay: ci * 0.06 }}
+            {statItems.map(({ cat, ci, count }) => (
+              <motion.div
+                key={cat.id}
+                initial={{ opacity: 0, x: 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: ci * 0.06 }}
+              >
+                <StarBorder
+                  as="div"
+                  color={cat.color}
+                  speed="6s"
+                  thickness={1}
+                  style={{ borderRadius: 8, display: "block", minWidth: 140 }}
                 >
-                  <StarBorder
-                    as="div"
-                    color={cat.color}
-                    speed="6s"
-                    thickness={1}
-                    style={{ borderRadius: 8, display: "block", minWidth: 140 }}
-                  >
-                    {/* Background on inner div — same fix */}
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 9,
-                      borderRadius: 7, padding: "6px 12px",
-                      background: "rgba(3,5,18,0.88)",
-                      backdropFilter: "blur(12px)",
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 9,
+                    borderRadius: 7, padding: "6px 12px",
+                    background: "rgba(3,5,18,0.88)",
+                    backdropFilter: "blur(12px)",
+                  }}>
+                    <span style={{ fontSize: 12 }}>{CATEGORY_EMOJI[cat.id]}</span>
+                    <span style={{ flex: 1, fontSize: 10, color: "rgba(180,195,255,0.65)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                      {cat.label.toUpperCase().slice(0, 13)}
+                    </span>
+                    <span style={{
+                      fontSize: 13, fontWeight: 700, color: cat.color,
+                      fontFamily: "monospace", minWidth: 20, textAlign: "right",
                     }}>
-                      <span style={{ fontSize: 12 }}>{CATEGORY_EMOJI[cat.id]}</span>
-                      <span style={{ flex: 1, fontSize: 10, color: "rgba(180,195,255,0.65)", fontFamily: "monospace", letterSpacing: "0.05em" }}>
-                        {cat.label.toUpperCase().slice(0, 13)}
-                      </span>
-                      <span style={{
-                        fontSize: 13, fontWeight: 700, color: cat.color,
-                        fontFamily: "monospace", minWidth: 20, textAlign: "right",
-                      }}>
-                        {count}
-                      </span>
-                    </div>
-                  </StarBorder>
-                </motion.div>
-              )
-            })}
+                      {count}
+                    </span>
+                  </div>
+                </StarBorder>
+              </motion.div>
+            ))}
             <div style={{ marginTop: 4, padding: "4px 12px", borderTop: "1px solid rgba(80,100,200,0.12)" }}>
               <span style={{ fontSize: 10, color: "rgba(80,100,160,0.5)", fontFamily: "monospace", letterSpacing: "0.08em" }}>
                 {activeIncidents.length} TOTAL INCIDENTS
               </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Stats panel — MOBILE: horizontal strip just above bottom hint ── */}
+      <AnimatePresence>
+        {statsVisible && activeIncidents.length > 0 && showGallery && isMobile && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.4 }}
+            style={{
+              position: "absolute", bottom: 48, left: 0, right: 0,
+              zIndex: 10, paddingBottom: 6,
+            }}
+          >
+            {/* Horizontal scrollable row of compact chips */}
+            <div style={{
+              display: "flex", gap: 6, overflowX: "auto", paddingInline: 16,
+              // Hide scrollbar on mobile
+              scrollbarWidth: "none",
+              WebkitOverflowScrolling: "touch",
+            }}>
+              {statItems.map(({ cat, count }) => (
+                <div
+                  key={cat.id}
+                  style={{
+                    flexShrink: 0,
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 10px", borderRadius: 20,
+                    background: "rgba(3,5,18,0.82)",
+                    backdropFilter: "blur(12px)",
+                    border: `1px solid ${cat.color}40`,
+                  }}
+                >
+                  <span style={{ fontSize: 11 }}>{CATEGORY_EMOJI[cat.id]}</span>
+                  <span style={{ fontSize: 10, color: "rgba(180,195,255,0.7)", fontFamily: "monospace" }}>
+                    {cat.label.split(" ")[0].toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: cat.color, fontFamily: "monospace" }}>
+                    {count}
+                  </span>
+                </div>
+              ))}
+              {/* Total pill */}
+              <div style={{
+                flexShrink: 0,
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "5px 10px", borderRadius: 20,
+                background: "rgba(3,5,18,0.82)",
+                backdropFilter: "blur(12px)",
+                border: "1px solid rgba(80,100,200,0.2)",
+              }}>
+                <span style={{ fontSize: 10, color: "rgba(100,130,200,0.6)", fontFamily: "monospace" }}>
+                  TOTAL
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(160,185,255,0.9)", fontFamily: "monospace" }}>
+                  {activeIncidents.length}
+                </span>
+              </div>
             </div>
           </motion.div>
         )}
@@ -728,12 +880,14 @@ export function IncidentGlobeGallery() {
             transition={{ delay: 1.2, duration: 0.8 }}
             style={{
               position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 10,
-              padding: "18px", display: "flex", justifyContent: "center",
+              padding: "14px 18px", display: "flex", justifyContent: "center",
               background: "linear-gradient(to top, rgba(0,0,15,0.7) 0%, transparent 100%)",
             }}
           >
             <p style={{ margin: 0, fontSize: 10, color: "rgba(60,90,160,0.5)", letterSpacing: "0.12em", fontFamily: "monospace" }}>
-              SCROLL TO ZOOM · DRAG TO ROTATE · CLICK MARKER TO INSPECT
+              {isMobile
+                ? "DRAG TO ROTATE · TAP MARKER TO INSPECT"
+                : "SCROLL TO ZOOM · DRAG TO ROTATE · CLICK MARKER TO INSPECT"}
             </p>
           </motion.div>
         )}
