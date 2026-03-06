@@ -86,15 +86,15 @@ Each category has its own colour-coded pin, icon, vote threshold, and time-to-li
 │  IncidentDetailSheet               │        │
 │  NotificationSheet                 │        │
 └────────────────────────────────────┼────────┘
-                    REST / Firestore  │  FCM push
+                    REST / Firestore │  FCM push
 ┌───────────────────────────────────────────────┐
-│           Firebase                             │
+│           Firebase                            │
 │                                               │
 │  Cloud Functions (Node 20, us-east1)          │
 │    POST /api/createIncident  ← rate-limit+    │
 │    POST /api/voteIncident    ← dedup by IP    │
-│    POST /api/subscribeToAlerts               │
-│    POST /api/unsubscribeFromAlerts           │
+│    POST /api/subscribeToAlerts                │
+│    POST /api/unsubscribeFromAlerts            │
 │                                               │
 │  Firestore   — incidents collection           │
 │  Storage     — photo uploads                  │
