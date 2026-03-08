@@ -5,8 +5,7 @@ import * as d3 from "d3"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, MapPin, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { GridScan } from "./GridScan"
-import type { GridScanHandle } from "./GridScan"
+
 import StarBorder from "./StarBorder"
 import { useIncidents } from "@/hooks/use-incidents"
 import { useAppState } from "@/hooks/use-app-state"
@@ -52,7 +51,6 @@ export function IncidentGlobeGallery() {
   const isMobile = useIsMobile()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const gridScanRef = useRef<GridScanHandle>(null)
 
   const projectionRef = useRef<d3.GeoProjection | null>(null)
   const rotationRef = useRef<[number, number]>([0, 0])
@@ -90,12 +88,7 @@ export function IncidentGlobeGallery() {
     return counts
   }, [activeIncidents])
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1
-    const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1)
-    gridScanRef.current?.updateLook(nx, ny)
-  }, [])
+
 
   // Stats visibility — lightweight, still driven by showGallery
   useEffect(() => {
@@ -626,7 +619,6 @@ export function IncidentGlobeGallery() {
 
   return (
     <div
-      onMouseMove={handleMouseMove}
       style={{
         position: "fixed", inset: 0, zIndex: 3000, overflow: "hidden",
         background: "#00000f",
@@ -635,23 +627,6 @@ export function IncidentGlobeGallery() {
         transition: "opacity 0.4s ease",
       }}
     >
-      {/* GridScan bg */}
-      <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
-        <GridScan
-          ref={gridScanRef}
-          sensitivity={0.95}
-          lineThickness={1}
-          linesColor="#12122a"
-          gridScale={0.08}
-          scanColor="#1a3aff"
-          scanOpacity={0.15}
-          enablePost
-          bloomIntensity={0.4}
-          chromaticAberration={0.02}
-          noiseIntensity={0.15}
-          scanDirection="pingpong"
-        />
-      </div>
 
       {/* Vignette */}
       <div style={{
