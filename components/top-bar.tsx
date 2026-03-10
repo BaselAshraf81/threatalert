@@ -96,7 +96,6 @@ export function TopBar() {
             <DialogHeader>
               <DialogTitle>Image preview</DialogTitle>
               <DialogDescription>
-                Place your file at <code>public/picture.png</code>.
               </DialogDescription>
             </DialogHeader>
             <img
