@@ -2,20 +2,12 @@
 
 import { useAppState } from "@/hooks/use-app-state"
 import { useTheme } from "next-themes"
-import { Bell, Shield, Sun, Moon, Globe, Loader2, ImageIcon } from "lucide-react"
+import { Bell, Shield, Sun, Moon, Globe, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import StarBorder from "@/components/StarBorder"
 import { GitHubStarsButton } from "@/components/github-stars-button"
 import { InstallPWAButton } from "@/components/install-pwa-button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 
 export function TopBar() {
   const { setShowNotificationSheet, setShowGallery, isGlobeLoading, showGallery } = useAppState()
@@ -80,32 +72,6 @@ export function TopBar() {
             <Globe className="h-4 w-4" />
           )}
         </Button>
-
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 rounded-full border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl hover:bg-card/90 dark:bg-card/60 sm:h-10 sm:w-10"
-              aria-label="Show picture"
-            >
-              <ImageIcon className="h-4 w-4" />
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Image preview</DialogTitle>
-              <DialogDescription>
-              </DialogDescription>
-            </DialogHeader>
-            <img
-              src="/picture.png"
-              alt="Crétin"
-              className="max-h-[60vh] w-full rounded-md border object-contain"
-            />
-            <p className="text-center text-sm text-muted-foreground">Crétin</p>
-          </DialogContent>
-        </Dialog>
 
         <Button
           variant="outline"
