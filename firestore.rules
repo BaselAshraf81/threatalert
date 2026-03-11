@@ -56,6 +56,25 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── Visitor stats (total count) ────────────────────────────────────────
+    match /stats/{docId} {
+      allow read: if true;
+      // Only allow incrementing the count field by exactly 1
+      allow create: if request.resource.data.keys().hasOnly(['count'])
+                    && request.resource.data.count == 1;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['count'])
+                    && request.resource.data.count == resource.data.count + 1;
+    }
+
+    // ── Presence (currently online) ────────────────────────────────────────
+    match /presence/{sessionId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasOnly(['lastSeen', 'sessionId'])
+                            && request.resource.data.lastSeen is timestamp
+                            && request.resource.data.sessionId is string;
+      allow delete: if true;
+    }
+
     // ── Subscribers ───────────────────────────────────────────────────────
     match /subscribers/{subscriberId} {
       allow read: if false;

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import StarBorder from "@/components/StarBorder"
 import { GitHubStarsButton } from "@/components/github-stars-button"
 import { InstallPWAButton } from "@/components/install-pwa-button"
+import { VisitorCounter } from "@/components/visitor-counter"
 
 export function TopBar() {
   const { setShowNotificationSheet, setShowGallery, isGlobeLoading, showGallery } = useAppState()
@@ -48,6 +49,7 @@ export function TopBar() {
 
       {/* Right: Install PWA + GitHub stars + globe gallery + theme toggle */}
       <div className="pointer-events-auto flex items-center justify-end gap-2">
+        <VisitorCounter />
         <InstallPWAButton />
         
         <GitHubStarsButton
