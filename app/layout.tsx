@@ -120,7 +120,9 @@ export default function RootLayout({
               "Push notifications",
               "3D globe view",
               "Photo attachments",
-              "Installable PWA"
+              "Installable PWA",
+              "Live anonymous chat",
+              "Real-time visitor counter"
             ]
           })}}
         />

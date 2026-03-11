@@ -17,3 +17,5 @@ https://github.com/BaselAshraf81/threatalert
 - 3D globe view of all live incidents
 - Installable PWA on iOS and Android
 - Auto-expiring incidents by category
+- Live anonymous chat with online users
+- Real-time visitor counter
