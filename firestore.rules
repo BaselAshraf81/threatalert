@@ -78,14 +78,14 @@ service cloud.firestore {
     // ── Live chat ──────────────────────────────────────────────────────────
     match /chat/{messageId} {
       allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(['text', 'author', 'sessionId', 'createdAt'])
+      allow create: if request.resource.data.keys().hasOnly(['text', 'author', 'userId', 'createdAt'])
                     && request.resource.data.text is string
                     && request.resource.data.text.size() > 0
                     && request.resource.data.text.size() <= 280
                     && request.resource.data.author is string
                     && request.resource.data.author.size() > 0
                     && request.resource.data.author.size() <= 40
-                    && request.resource.data.sessionId is string
+                    && request.resource.data.userId is string
                     && request.resource.data.createdAt is timestamp;
       allow update, delete: if false;
     }

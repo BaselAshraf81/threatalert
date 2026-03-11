@@ -13,7 +13,7 @@ import {
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAppState } from "@/hooks/use-app-state"
-import { MessageCircle, Send, Shield } from "lucide-react"
+import { MessageCircle, Send, Shield, Loader2 } from "lucide-react"
 import {
   Sheet,
   SheetContent,
@@ -24,37 +24,20 @@ import {
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 
-// ── Anonymous name generator ──────────────────────────────────────────────────
-const ADJECTIVES = [
-  "Silent", "Swift", "Bold", "Calm", "Keen", "Wise", "Brave", "Dark",
-  "Sharp", "Cool", "Quick", "Quiet", "Bright", "Rapid", "Stark", "Lone",
-  "Iron", "Steel", "Amber", "Azure", "Crimson", "Neon", "Phantom", "Ghost",
-]
-const ANIMALS = [
-  "Fox", "Hawk", "Wolf", "Bear", "Owl", "Lynx", "Raven", "Eagle",
-  "Viper", "Shark", "Tiger", "Puma", "Falcon", "Cobra", "Badger", "Bison",
-  "Jackal", "Moose", "Crane", "Heron", "Panther", "Dingo", "Osprey", "Wren",
-]
-
-function generateUsername(): string {
-  const adj    = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]
-  const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
-  const num    = Math.floor(Math.random() * 90) + 10
-  return `${adj}${animal}${num}`
-}
-
 // ── Config ────────────────────────────────────────────────────────────────────
-const MAX_MESSAGES     = 60
-const MAX_CHAR         = 280
-const RATE_LIMIT_MS    = 2000   // min ms between sends
-const SESSION_KEY_NAME = "threatalert_chat_username"
+const MAX_MESSAGES  = 60
+const MAX_CHAR      = 280
+const RATE_LIMIT_MS = 2000
+// Keys for localStorage (persists across refreshes + tabs on same browser)
+const LS_USERNAME   = "threatalert_chat_username"
+const LS_USER_ID    = "threatalert_user_id"
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ChatMessage {
   id: string
   text: string
   author: string
-  sessionId: string
+  userId: string
   createdAt: Timestamp | null
 }
 
@@ -74,28 +57,44 @@ export function LiveChatSheet() {
   const [input,     setInput]     = useState("")
   const [sending,   setSending]   = useState(false)
   const [username,  setUsername]  = useState<string>("")
+  const [userId,    setUserId]    = useState<string>("")
+  const [loadingId, setLoadingId] = useState(true)
   const [lastSent,  setLastSent]  = useState(0)
   const [error,     setError]     = useState<string | null>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const sessionId   = useRef<string>(
-    typeof sessionStorage !== "undefined"
-      ? (sessionStorage.getItem("threatalert_session_id") ?? "anon")
-      : "anon"
-  )
 
-  // Stable username for this session
+  // ── Fetch stable IP-based username on mount ────────────────────────────────
   useEffect(() => {
-    if (typeof sessionStorage === "undefined") return
-    let name = sessionStorage.getItem(SESSION_KEY_NAME)
-    if (!name) {
-      name = generateUsername()
-      sessionStorage.setItem(SESSION_KEY_NAME, name)
+    const cachedName = localStorage.getItem(LS_USERNAME)
+    const cachedId   = localStorage.getItem(LS_USER_ID)
+
+    if (cachedName && cachedId) {
+      setUsername(cachedName)
+      setUserId(cachedId)
+      setLoadingId(false)
+      return
     }
-    setUsername(name)
+
+    // First visit: ask the Netlify function for an IP-derived identity
+    fetch("/api/get-user-id")
+      .then((r) => r.json())
+      .then(({ username: name, userId: uid }: { username: string; userId: string }) => {
+        localStorage.setItem(LS_USERNAME, name)
+        localStorage.setItem(LS_USER_ID, uid)
+        setUsername(name)
+        setUserId(uid)
+      })
+      .catch(() => {
+        // Fallback: random name if function unavailable (e.g. local dev)
+        const fallback = `User${Math.floor(Math.random() * 9000) + 1000}`
+        setUsername(fallback)
+        setUserId(fallback)
+      })
+      .finally(() => setLoadingId(false))
   }, [])
 
-  // Real-time message subscription
+  // ── Real-time message subscription ────────────────────────────────────────
   useEffect(() => {
     const q = query(
       collection(db, "chat"),
@@ -108,9 +107,9 @@ export function LiveChatSheet() {
         const data = d.data()
         msgs.push({
           id:        d.id,
-          text:      data.text      ?? "",
-          author:    data.author    ?? "Anonymous",
-          sessionId: data.sessionId ?? "",
+          text:      data.text   ?? "",
+          author:    data.author ?? "Anonymous",
+          userId:    data.userId ?? "",
           createdAt: data.createdAt ?? null,
         })
       })
@@ -128,7 +127,7 @@ export function LiveChatSheet() {
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
-    if (!text || sending) return
+    if (!text || sending || loadingId || !userId) return
 
     if (Date.now() - lastSent < RATE_LIMIT_MS) {
       setError("Slow down a little ✌️")
@@ -136,7 +135,7 @@ export function LiveChatSheet() {
       return
     }
     if (text.length > MAX_CHAR) {
-      setError(`Message too long (max ${MAX_CHAR} chars)`)
+      setError(`Max ${MAX_CHAR} characters`)
       return
     }
 
@@ -148,18 +147,18 @@ export function LiveChatSheet() {
       await addDoc(collection(db, "chat"), {
         text,
         author:    username || "Anonymous",
-        sessionId: sessionId.current,
+        userId,
         createdAt: serverTimestamp(),
       })
       setLastSent(Date.now())
     } catch {
       setError("Failed to send — please try again.")
-      setInput(text) // restore so user doesn't lose message
+      setInput(text)
     } finally {
       setSending(false)
       textareaRef.current?.focus()
     }
-  }, [input, sending, lastSent, username])
+  }, [input, sending, lastSent, username, userId, loadingId])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -168,7 +167,7 @@ export function LiveChatSheet() {
     }
   }
 
-  const isOwnMessage = (msg: ChatMessage) => msg.sessionId === sessionId.current
+  const isOwnMessage = (msg: ChatMessage) => msg.userId === userId
 
   return (
     <Sheet open={showChatSheet} onOpenChange={(open) => !open && setShowChatSheet(false)}>
@@ -195,7 +194,13 @@ export function LiveChatSheet() {
             </div>
           </div>
           <SheetDescription className="text-xs text-muted-foreground">
-            Chatting as <span className="font-semibold text-foreground">{username}</span> — anonymous &amp; ephemeral
+            {loadingId ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" /> Assigning your identity…
+              </span>
+            ) : (
+              <>Chatting as <span className="font-semibold text-foreground">{username}</span> — anonymous &amp; ephemeral</>
+            )}
           </SheetDescription>
         </SheetHeader>
 
@@ -215,7 +220,6 @@ export function LiveChatSheet() {
                     key={msg.id}
                     className={`flex flex-col gap-0.5 ${own ? "items-end" : "items-start"}`}
                   >
-                    {/* Author + time */}
                     <div className={`flex items-center gap-1.5 ${own ? "flex-row-reverse" : ""}`}>
                       <span className={`text-[11px] font-semibold ${own ? "text-primary" : "text-muted-foreground"}`}>
                         {own ? "You" : msg.author}
@@ -224,7 +228,6 @@ export function LiveChatSheet() {
                         {getRelativeTime(msg.createdAt)}
                       </span>
                     </div>
-                    {/* Bubble */}
                     <div
                       className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
                         own
@@ -256,23 +259,23 @@ export function LiveChatSheet() {
               placeholder="Type a message… (Enter to send)"
               maxLength={MAX_CHAR}
               rows={1}
-              className="scrollbar-hide max-h-28 min-h-[2.5rem] flex-1 resize-none rounded-xl border-border/50 bg-secondary/60 text-sm leading-relaxed focus-visible:ring-1 focus-visible:ring-primary/50"
+              disabled={loadingId}
+              className="scrollbar-hide max-h-28 min-h-[2.5rem] flex-1 resize-none rounded-xl border-border/50 bg-secondary/60 text-sm leading-relaxed focus-visible:ring-1 focus-visible:ring-primary/50 disabled:opacity-50"
             />
             <Button
               onClick={handleSend}
-              disabled={!input.trim() || sending}
+              disabled={!input.trim() || sending || loadingId}
               size="icon"
               className="h-10 w-10 shrink-0 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-40"
               aria-label="Send message"
             >
-              <Send className="h-4 w-4" />
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
-          {/* Privacy note */}
           <div className="mt-2.5 flex items-center gap-1.5">
             <Shield className="h-3 w-3 shrink-0 text-muted-foreground/50" />
             <p className="text-[10px] text-muted-foreground/50">
-              Anonymous · No account needed · Be respectful
+              Your name is derived from a hash of your IP — never stored, never shared
             </p>
           </div>
         </div>
