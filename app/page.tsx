@@ -12,6 +12,7 @@ import { IncidentTicker } from "@/components/incident-ticker"
 import { BetaBanner } from "@/components/beta-banner"
 import ClickSpark from "@/components/ClickSpark"
 import { IncidentGlobeGallery } from "@/components/incident-globe-gallery"
+import { LiveChatSheet } from "@/components/live-chat-sheet"
 import { useTheme } from "next-themes"
 
 // Leaflet must be loaded client-side only (uses window)
@@ -47,6 +48,7 @@ function AppContent() {
         <AlertToast />
         <BetaBanner />
         <IncidentGlobeGallery />
+        <LiveChatSheet />
       </main>
     </ClickSpark>
   )

@@ -9,21 +9,16 @@ import {
   setDoc,
   deleteDoc,
   serverTimestamp,
-  query,
-  where,
   Timestamp,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-import { Users } from "lucide-react"
+import { useAppState } from "@/hooks/use-app-state"
+import { Users, MessageCircle } from "lucide-react"
 
 // ── Config ────────────────────────────────────────────────────────────────────
-// Adjust VISITOR_BASE to whatever number you want to seed the counter from.
-// The real Firestore count is added on top of this value.
-const VISITOR_BASE = 150
-
-// A session is considered "online" if its heartbeat is within this window (ms).
-const ONLINE_WINDOW_MS = 90_000   // 90 s
-const HEARTBEAT_MS     = 30_000   // ping every 30 s
+const VISITOR_BASE     = 150
+const ONLINE_WINDOW_MS = 90_000
+const HEARTBEAT_MS     = 30_000
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateSessionId(): string {
@@ -31,11 +26,10 @@ function generateSessionId(): string {
 }
 
 export function VisitorCounter() {
+  const { setShowChatSheet, setOnlineCount, onlineCount } = useAppState()
   const [totalVisitors, setTotalVisitors] = useState<number | null>(null)
-  const [onlineCount,   setOnlineCount]   = useState<number>(1)
-
-  const sessionIdRef   = useRef<string | null>(null)
-  const heartbeatRef   = useRef<ReturnType<typeof setInterval> | null>(null)
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
 
   // ── Total-visitor counter ──────────────────────────────────────────────────
   useEffect(() => {
@@ -48,7 +42,7 @@ export function VisitorCounter() {
         const snap    = await tx.get(visitorsRef)
         const current = snap.exists() ? (snap.data().count ?? 0) : 0
         tx.set(visitorsRef, { count: current + 1 }, { merge: true })
-      }).catch(() => { /* silently ignore */ })
+      }).catch(() => {})
     }
 
     const unsub = onSnapshot(visitorsRef, (snap) => {
@@ -58,13 +52,11 @@ export function VisitorCounter() {
         setTotalVisitors(VISITOR_BASE)
       }
     })
-
     return () => unsub()
   }, [])
 
   // ── Presence / currently-online ────────────────────────────────────────────
   useEffect(() => {
-    // Create a stable session ID for this tab
     if (!sessionIdRef.current) {
       sessionIdRef.current =
         sessionStorage.getItem("threatalert_session_id") ??
@@ -81,29 +73,21 @@ export function VisitorCounter() {
     const writeHeartbeat = () =>
       setDoc(presenceRef, { lastSeen: serverTimestamp(), sessionId }, { merge: true }).catch(() => {})
 
-    // Write immediately, then every HEARTBEAT_MS
     writeHeartbeat()
     heartbeatRef.current = setInterval(writeHeartbeat, HEARTBEAT_MS)
 
-    // Clean up this session on tab close
-    const handleUnload = () => {
-      deleteDoc(presenceRef).catch(() => {})
-    }
+    const handleUnload = () => deleteDoc(presenceRef).catch(() => {})
     window.addEventListener("beforeunload", handleUnload)
 
-    // Listen to presence collection — count docs with a recent lastSeen
-    const presenceCollection = collection(db, "presence")
-    const unsub = onSnapshot(presenceCollection, (snap) => {
+    const unsub = onSnapshot(collection(db, "presence"), (snap) => {
       const cutoff = Date.now() - ONLINE_WINDOW_MS
       let active   = 0
       snap.forEach((d) => {
         const data = d.data()
-        if (data.lastSeen instanceof Timestamp) {
-          if (data.lastSeen.toMillis() >= cutoff) active++
-        }
+        if (data.lastSeen instanceof Timestamp && data.lastSeen.toMillis() >= cutoff) active++
       })
-      // Always show at least 1 (the current user)
-      setOnlineCount(Math.max(active, 1))
+      const count = Math.max(active, 1)
+      setOnlineCount(count)
     })
 
     return () => {
@@ -112,29 +96,34 @@ export function VisitorCounter() {
       deleteDoc(presenceRef).catch(() => {})
       unsub()
     }
-  }, [])
+  }, [setOnlineCount])
 
   if (totalVisitors === null) return null
 
   return (
-    <div className="flex items-center gap-2 rounded-full border border-border/50 bg-card/70 px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur-2xl dark:bg-card/60">
-      {/* Currently online dot + count */}
-      <span className="flex items-center gap-1.5">
+    <div className="flex items-center gap-0 rounded-full border border-border/50 bg-card/70 shadow-lg backdrop-blur-2xl dark:bg-card/60 overflow-hidden">
+      {/* Clickable online pill → opens chat */}
+      <button
+        onClick={() => setShowChatSheet(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent/10 active:bg-accent/20"
+        aria-label="Open live chat"
+        title="Open live chat"
+      >
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
         </span>
-        <span className="text-emerald-500 font-semibold">{onlineCount}</span>
-        <span className="text-muted-foreground">online</span>
-      </span>
+        <span className="font-semibold text-emerald-500">{onlineCount}</span>
+        <MessageCircle className="h-3 w-3 text-emerald-500/70" />
+      </button>
 
-      <span className="h-3 w-px bg-border/60" />
+      <span className="h-4 w-px bg-border/50" />
 
       {/* Total visitors */}
-      <span className="flex items-center gap-1.5 text-muted-foreground">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground">
         <Users className="h-3 w-3" />
         <span>{totalVisitors.toLocaleString()}</span>
-      </span>
+      </div>
     </div>
   )
 }

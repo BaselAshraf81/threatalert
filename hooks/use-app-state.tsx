@@ -38,6 +38,12 @@ interface AppState {
   /** True while the globe is fetching/processing land data for the first time */
   isGlobeLoading: boolean
   setIsGlobeLoading: (v: boolean) => void
+  /** Live chat sheet visibility */
+  showChatSheet: boolean
+  setShowChatSheet: (v: boolean) => void
+  /** Currently online user count (shared from visitor-counter) */
+  onlineCount: number
+  setOnlineCount: (n: number) => void
 }
 
 const AppContext = createContext<AppState | null>(null)
@@ -55,6 +61,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [pendingShareTarget, setPendingShareTarget] = useState<{ id: string; lat: number; lng: number } | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const [isGlobeLoading, setIsGlobeLoading] = useState(false)
+  const [showChatSheet, setShowChatSheet] = useState(false)
+  const [onlineCount, setOnlineCount] = useState(1)
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("pending")
@@ -156,6 +164,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setShowGallery,
         isGlobeLoading,
         setIsGlobeLoading,
+        showChatSheet,
+        setShowChatSheet,
+        onlineCount,
+        setOnlineCount,
       }}
     >
       {children}
